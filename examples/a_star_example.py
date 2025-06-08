@@ -24,8 +24,8 @@ def main():
 
     planner = AStarPlanner()
     path = planner.plan(start, goal, grid)
-    dense = densify_path(path, points_per_segment=5)
-    smoothed = smooth_path(dense, smoothness=0.5)
+    dense = densify_path(path, points_per_segment=10)
+    smoothed = smooth_path(dense, smoothness=0.25)
 
     print(f"Path length: {len(path)}")
     print("Path:", path)
