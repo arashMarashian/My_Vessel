@@ -10,7 +10,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from path_planner import AStarPlanner
-from path_planner.utils import plot_map, plot_path
+from path_planner.utils import plot_map, plot_path, smooth_path
 
 
 def main():
@@ -24,13 +24,15 @@ def main():
 
     planner = AStarPlanner()
     path = planner.plan(start, goal, grid)
+    smoothed = smooth_path(path, smoothness=0.5)
 
     print(f"Path length: {len(path)}")
     print("Path:", path)
+    print("Smoothed path:", smoothed)
 
     plt.figure(figsize=(5, 5))
     plot_map(grid)
-    plot_path(path)
+    plot_path(smoothed)
     plt.show()
 
 
