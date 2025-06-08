@@ -25,6 +25,42 @@ def plot_path(path: Iterable[Tuple[int, int]]) -> None:
     plt.legend()
 
 
+def densify_path(
+    path: List[Tuple[int, int]], points_per_segment: int = 10
+) -> List[Tuple[float, float]]:
+    """Insert interpolated points between waypoints to create a dense path.
+
+    Parameters
+    ----------
+    path : List[Tuple[int, int]]
+        Sequence of grid coordinates returned by a planner.
+    points_per_segment : int, optional
+        Number of points to sample for each segment between consecutive
+        waypoints. Must be at least 1. ``1`` returns the original points.
+
+    Returns
+    -------
+    List[Tuple[float, float]]
+        Dense path with additional interpolated coordinates.
+    """
+
+    if not path:
+        return []
+    if points_per_segment <= 1:
+        return [tuple(map(float, p)) for p in path]
+
+    dense: List[Tuple[float, float]] = []
+    for i in range(len(path) - 1):
+        x0, y0 = path[i]
+        x1, y1 = path[i + 1]
+        for t in np.linspace(0.0, 1.0, points_per_segment, endpoint=False):
+            x = x0 + t * (x1 - x0)
+            y = y0 + t * (y1 - y0)
+            dense.append((float(x), float(y)))
+    dense.append(tuple(map(float, path[-1])))
+    return dense
+
+
 def smooth_path(
     path: List[Tuple[int, int]], smoothness: float, iterations: int = 50
 ) -> List[Tuple[float, float]]:
