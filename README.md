@@ -14,6 +14,7 @@ stabilization (flaps, tabs, interceptors).
 - Feedback control strategies including simple feedback linearization.
 - Tools for extrapolating hydrodynamic coefficients from experiments.
 - Example notebooks for simulation and visualization.
+- Grid-based path planning utilities with an A* demo.
 
 ## Repository Structure
 
@@ -23,6 +24,7 @@ controllers/   # control design algorithms
 utils/         # plotting and helper functions
 data/          # placeholder for experimental data files
 notebooks/     # research notebooks and examples
+path_planner/  # simple planners for obstacle avoidance
 ```
 
 Each directory is initialized as a Python package so additional modules can be
@@ -44,4 +46,9 @@ python test.py
 
 The script runs a simple simulation of a planing hull with a feedback
 linearization controller and prints the final state vector.
+
+To try the A* planner, install the requirements and open
+`notebooks/a_star_demo.ipynb` in Jupyter. The notebook creates a
+small occupancy grid and uses `AStarPlanner` to find a path while
+visualizing the result.
 
