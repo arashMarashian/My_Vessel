@@ -24,3 +24,46 @@ def plot_path(path: Iterable[Tuple[int, int]]) -> None:
     plt.plot(pts[-1, 1], pts[-1, 0], "bx", label="goal")
     plt.legend()
 
+
+def smooth_path(
+    path: List[Tuple[int, int]], smoothness: float, iterations: int = 50
+) -> List[Tuple[float, float]]:
+    """Return a smoothed version of a grid path.
+
+    Parameters
+    ----------
+    path : List[Tuple[int, int]]
+        Discrete path returned by a planner.
+    smoothness : float
+        Value between 0 and 1 specifying how much to smooth the path.
+        ``0`` returns the original path while ``1`` applies the maximum
+        smoothing.
+    iterations : int, optional
+        Number of smoothing iterations to perform.
+
+    Returns
+    -------
+    List[Tuple[float, float]]
+        The smoothed path coordinates.
+    """
+
+    if not path or smoothness <= 0.0:
+        return list(path)
+
+    smoothness = float(np.clip(smoothness, 0.0, 1.0))
+
+    pts = np.asarray(path, dtype=float)
+    new_pts = pts.copy()
+
+    weight_data = 1.0 - smoothness
+    weight_smooth = smoothness
+
+    for _ in range(iterations):
+        for i in range(1, len(pts) - 1):
+            new_pts[i] += weight_data * (pts[i] - new_pts[i])
+            new_pts[i] += weight_smooth * (
+                new_pts[i - 1] + new_pts[i + 1] - 2.0 * new_pts[i]
+            )
+
+    return [tuple(p) for p in new_pts]
+
