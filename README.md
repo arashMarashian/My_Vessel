@@ -14,7 +14,8 @@ stabilization (flaps, tabs, interceptors).
 - Feedback control strategies including simple feedback linearization.
 - Tools for extrapolating hydrodynamic coefficients from experiments.
 - Example notebooks for simulation and visualization.
-- Grid-based path planning utilities with an A* demo.
+- Grid-based path planning utilities with an A* demo and optional path
+  smoothing for trajectory following.
 
 ## Repository Structure
 
