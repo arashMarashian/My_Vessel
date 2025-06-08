@@ -47,8 +47,13 @@ python test.py
 The script runs a simple simulation of a planing hull with a feedback
 linearization controller and prints the final state vector.
 
-To try the A* planner, install the requirements and open
-`notebooks/a_star_demo.ipynb` in Jupyter. The notebook creates a
-small occupancy grid and uses `AStarPlanner` to find a path while
-visualizing the result.
+To try the A* planner, you can either open
+`notebooks/a_star_demo.ipynb` in Jupyter or run the provided script:
+
+```bash
+python examples/a_star_example.py
+```
+
+Both approaches create a small occupancy grid and use
+`AStarPlanner` to find a path while visualizing the result.
 
