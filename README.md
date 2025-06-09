@@ -58,3 +58,8 @@ python examples/a_star_example.py
 Both approaches create a small occupancy grid and use
 `AStarPlanner` to find a path while visualizing the result.
 
+## Project Workflow
+![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
+
+
+
