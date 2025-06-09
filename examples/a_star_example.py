@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
 
 from path_planner import AStarPlanner
 from path_planner.utils import plot_map, plot_path, densify_path, smooth_path
+from environment.map_utils import load_environment_data, extract_environment_along_path
 
 
 def main():
@@ -26,6 +27,14 @@ def main():
     path = planner.plan(start, goal, grid)
     dense = densify_path(path, points_per_segment=10)
     smoothed = smooth_path(dense, smoothness=0.25)
+
+    # Load environmental data and sample it along the discrete path
+    env = load_environment_data()
+    path_xy = [(c, r) for r, c in path]
+    env_on_path = extract_environment_along_path(env, path_xy)
+
+    print("Wind speed along path:", env_on_path["wind_speed"])
+    print("Wave height along path:", env_on_path["wave_height"])
 
     print(f"Path length: {len(path)}")
     print("Path:", path)
