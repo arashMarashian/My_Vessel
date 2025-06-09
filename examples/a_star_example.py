@@ -45,6 +45,25 @@ def main():
     plot_path(smoothed)
     plt.show()
 
+    # Visualize environmental data along the planned path
+    time = np.arange(len(path_xy))
+    fig, axes = plt.subplots(len(env_on_path), 1,
+                             figsize=(6, 2.5 * len(env_on_path)),
+                             sharex=True)
+
+    if not isinstance(axes, np.ndarray):
+        axes = [axes]
+
+    for ax, (key, values) in zip(axes, env_on_path.items()):
+        ax.plot(time, values, marker="o")
+        ax.set_ylabel(key)
+        ax.grid(True, linestyle="--", alpha=0.5)
+
+    axes[-1].set_xlabel("Node ID")
+    fig.suptitle("Environment along path")
+    fig.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
