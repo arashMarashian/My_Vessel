@@ -102,6 +102,16 @@ class VesselEnergySystem:
         engine_powers = []
         fuel_used = []
         for eng, load in zip(self.engines, loads):
+            if load == 0:
+                engine_powers.append(0.0)
+                fuel_used.append(0.0)
+                continue
+
+            if load < eng.min_load or load > eng.max_load:
+                raise ValueError(
+                    f"Engine load {load}% for {eng.name} outside operational range"
+                )
+
             fuel = eng.step(load) * timestep_hours  # g
             power = load / 100.0 * eng.max_power * 1000.0  # W
             engine_powers.append(power)
