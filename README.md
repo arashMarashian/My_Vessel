@@ -61,5 +61,7 @@ Both approaches create a small occupancy grid and use
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
 
+## Energy Architecture For Cruise Vessel Simulation
+![output (2)](https://github.com/user-attachments/assets/6ba6b003-a737-4548-bcce-5edae61bc879)
 
 
