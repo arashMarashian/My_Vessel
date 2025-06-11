@@ -12,36 +12,45 @@ if PROJECT_ROOT not in sys.path:
 from engine_loader import load_engines_from_yaml
 from energy.opt_control import DispatchOptimizer
 
-# === CONFIGURATION ===
-ENGINE_PATH = os.path.join("data", "engine_data.yaml")
-HORIZON = 5
-DT_HOURS = 1.0
-BATTERY_CAPACITY_KWH = 500.0
-FUEL_TYPE = "HFO"
-TARGET_DISTANCE_M = 60_000.0
-N_ENGINES = 4
 
-
-def load_engines_and_curves(path: str, fuel_type: str, n_engines: int):
-    engines = load_engines_from_yaml(path)[:n_engines]
+def main() -> None:
+    """Run the dispatch optimizer for a short horizon and plot results."""
+    path = os.path.join("data", "engine_data.yaml")
+    engines = load_engines_from_yaml(path)[:2]
 
     with open(path) as f:
         data = yaml.safe_load(f)
-
     curves = []
-    for eng in data["engines"][:n_engines]:
-        curve = {float(k): v for k, v in eng["sfoc"][fuel_type].items()}
+    for eng in data["engines"][:2]:
+        curve = {float(k): v for k, v in eng["sfoc"]["HFO"].items()}
         curves.append(curve)
 
-    return engines, curves
+    horizon = 9
+    env = [
+        {"wind_speed": 5.0, "wind_angle_diff": 0.0, "wave_height": 1.0}
+        for _ in range(horizon)
+    ]
 
+    opt = DispatchOptimizer(
+        engines,
+        horizon=horizon,
+        env=env,
+        dt_hours=1.0,
+        battery_capacity_kwh=500.0,
+        sfoc_curves=curves,
+        target_distance_m=300_000.0,
+    )
 
-def create_environment_sequence(length: int):
-    return [{"wind_speed": 5.0, "wind_angle_diff": 0.0, "wave_height": 1.0}
-            for _ in range(length)]
+    solver = "ipopt"
+    opt.solve(solver)
+    results = opt.results()
 
+    time = np.arange(horizon)
+    speeds = results["speed"]
+    distance = np.sum(speeds) * 3600
+    soc = results["soc"][:-1]
+    loads = np.array(results["loads"]) * 100
 
-def plot_results(time, speeds, soc, loads, engines):
     fig, ax1 = plt.subplots(figsize=(8, 4))
     ax1.plot(time, speeds, marker="o", label="Speed")
     ax1.set_xlabel("Timestep")
@@ -54,7 +63,6 @@ def plot_results(time, speeds, soc, loads, engines):
     ax2.set_ylabel("Battery SOC", color="tab:orange")
     ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-    plt.title("Speed and Battery SOC over Time")
     fig.tight_layout()
 
     fig2, axs = plt.subplots(len(engines), 1, figsize=(8, 3 * len(engines)), sharex=True)
@@ -63,47 +71,14 @@ def plot_results(time, speeds, soc, loads, engines):
     for i, ax in enumerate(axs):
         ax.step(time, loads[:, i], where="mid", label=engines[i].name)
         ax.set_ylabel("Load %")
-        ax.set_ylim(0, 100)
         ax.legend()
         ax.grid(True, linestyle="--", alpha=0.5)
     axs[-1].set_xlabel("Timestep")
-    plt.suptitle("Engine Load Profiles", y=1.02)
     fig2.tight_layout()
 
-    plt.show()
-
-
-def main() -> None:
-    engines, curves = load_engines_and_curves(ENGINE_PATH, FUEL_TYPE, N_ENGINES)
-    env = create_environment_sequence(HORIZON)
-
-    opt = DispatchOptimizer(
-        engines=engines,
-        horizon=HORIZON,
-        env=env,
-        dt_hours=DT_HOURS,
-        battery_capacity_kwh=BATTERY_CAPACITY_KWH,
-        sfoc_curves=curves,
-        target_distance_m=TARGET_DISTANCE_M,
-    )
-
-    solver = "ipopt"
-    opt.solve(solver)
-    results = opt.results()
-
-    time = np.arange(HORIZON)
-    speeds = results["speed"]
-    soc = results["soc"][:-1]
-    loads = np.array(results["loads"]) * 100
-    distance = np.sum(speeds) * 3600  # speed in m/s × seconds
-
-    plot_results(time, speeds, soc, loads, engines)
-
-    print("\n=== Optimization Summary ===")
     print(f"Total distance traveled: {distance:.1f} m")
-    print(f"Final SOC: {results['soc'][-1]:.2f} kWh")
-    print(f"Total fuel used (g): {sum(map(sum, results['fuel_used'])):.1f}")
-    print()
+
+    plt.show()
 
 
 if __name__ == "__main__":
