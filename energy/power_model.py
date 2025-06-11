@@ -34,11 +34,11 @@ def propulsion_power(
     """
 
     defaults = {
-        "k1": 300.0,  # frictional resistance
-        "k2": 100.0,  # wave-making drag
-        "A_proj": 1200.0,  # frontal area (m^2)
-        "C_D": 0.8,  # bluff body drag coefficient
-        "k_wave": 500.0,  # wave influence coefficient
+        "k1": 250.0,  # frictional resistance
+        "k2": 80.0,  # wave-making drag
+        "A_proj": 1000.0,  # frontal area (m^2)
+        "C_D": 0.75,  # bluff body drag coefficient
+        "k_wave": 450.0,  # wave influence coefficient
     }
 
     if coeffs:
