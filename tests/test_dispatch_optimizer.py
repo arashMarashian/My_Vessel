@@ -26,3 +26,22 @@ def test_dispatch_optimizer_build():
         sfoc_curves=[{float(k): v for k, v in curve.items()}],
     )
     assert opt.model is not None
+
+
+def test_distance_constraint():
+    path = "data/engine_data.yaml"
+    engines = load_engines_from_yaml(path)[:1]
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    curve = data["engines"][0]["sfoc"]["HFO"]
+    env = [{"wind_speed": 5.0, "wind_angle_diff": 0.0, "wave_height": 1.0} for _ in range(2)]
+    opt = DispatchOptimizer(
+        engines,
+        horizon=2,
+        env=env,
+        dt_hours=1.0,
+        battery_capacity_kwh=1000.0,
+        sfoc_curves=[{float(k): v for k, v in curve.items()}],
+        target_distance_m=1000.0,
+    )
+    assert hasattr(opt.model, "distance_target")

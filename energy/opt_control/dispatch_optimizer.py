@@ -26,6 +26,7 @@ class DispatchOptimizer:
         eta_c: float = 0.95,
         eta_d: float = 0.95,
         v_max: float = 10.0,
+        target_distance_m: float | None = None,
         lambda_bat: float = 10.0,
         lambda_switch: float = 1.0,
     ) -> None:
@@ -41,6 +42,7 @@ class DispatchOptimizer:
         self.eta_c = eta_c
         self.eta_d = eta_d
         self.v_max = v_max
+        self.target_distance = target_distance_m
         self.lambda_bat = lambda_bat
         self.lambda_switch = lambda_switch
 
@@ -73,6 +75,11 @@ class DispatchOptimizer:
         m.p_bat_discharge = pyo.Var(m.T, domain=pyo.NonNegativeReals)
         m.soc = pyo.Var(range(self.horizon + 1), bounds=(0, 1))
         m.v = pyo.Var(m.T, bounds=(0, self.v_max))
+
+        if self.target_distance is not None:
+            def distance_rule(m):
+                return sum(m.v[t] * self.dt * 3600 for t in m.T) >= self.target_distance
+            m.distance_target = pyo.Constraint(rule=distance_rule)
 
         # initial SOC
         m.soc[0].fix(self.soc0)

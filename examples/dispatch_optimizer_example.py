@@ -38,6 +38,7 @@ def main() -> None:
         dt_hours=1.0,
         battery_capacity_kwh=500.0,
         sfoc_curves=curves,
+        target_distance_m=60000.0,
     )
 
     solver = "ipopt"
@@ -46,6 +47,7 @@ def main() -> None:
 
     time = np.arange(horizon)
     speeds = results["speed"]
+    distance = np.sum(speeds) * 3600
     soc = results["soc"][:-1]
     loads = np.array(results["loads"]) * 100
 
@@ -73,6 +75,8 @@ def main() -> None:
         ax.grid(True, linestyle="--", alpha=0.5)
     axs[-1].set_xlabel("Timestep")
     fig2.tight_layout()
+
+    print(f"Total distance traveled: {distance:.1f} m")
 
     plt.show()
 
