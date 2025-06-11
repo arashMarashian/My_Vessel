@@ -11,17 +11,17 @@ from energy.vessel_energy_system import Battery, VesselEnergySystem
 
 
 def main() -> None:
-    engines = load_engines_from_yaml("data/engine_data.yaml")
+    engines = load_engines_from_yaml("data/engine_data_viking_star.yaml")
     # Duplicate to create four engines for the example
-    engines = engines * 2
-    battery = Battery(capacity_kwh=10000.0, soc_kwh=5000.0)
+    engines = engines * 4
+    battery = Battery(capacity_kwh=0*10000.0, soc_kwh=0*5000.0)
     vessel = VesselEnergySystem(engines, battery)
 
-    env = {"wind_speed": 5.0, "wind_angle_diff": 30.0, "wave_height": 1.0}
+    env = {"wind_speed": 8.0, "wind_angle_diff": 45.0, "wave_height": 2}
     controller_action = {
-        "engine_loads": [50, 75, 0, 0],
-        "battery_power": -200000.0,  # discharging in watts
-        "target_speed": 8.0,
+        "engine_loads": [85, 70, 85, 70],
+        "battery_power": -200000.0*0,  # discharging in watts
+        "target_speed": 18.0,
     }
 
     result = vessel.step(controller_action, env, timestep_hours=1.0)
