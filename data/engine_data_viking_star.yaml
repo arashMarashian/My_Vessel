@@ -1,18 +1,72 @@
 engines:
-  - name: "MAN32_44CR"
-    max_power_kw: 11500
-    min_load_percent: 25
+  - name: "12V46F_1"
+    max_power_kw: 15000
+    min_load_percent: 30
     max_load_percent: 85
-    startup_cost_mj: 400
+    startup_cost_mj: 500
     fuel_types: ["HFO", "MDF"]
     sfoc:
       HFO:
-        "50": 190
-        "75": 180
-        "85": 175
-        "100": 178
+        "50": 195
+        "75": 184.5
+        "85": 178.3
+        "100": 179.7
       MDF:
-        "50": 192
-        "75": 181
-        "85": 176
-        "100": 179
+        "50": 197.1
+        "75": 184.2
+        "85": 179.5
+        "100": 183.5
+
+  - name: "12V46F_2"
+    max_power_kw: 15000
+    min_load_percent: 30
+    max_load_percent: 85
+    startup_cost_mj: 500
+    fuel_types: ["HFO", "MDF"]
+    sfoc:
+      HFO:
+        "50": 195
+        "75": 184.5
+        "85": 178.3
+        "100": 179.7
+      MDF:
+        "50": 197.1
+        "75": 184.2
+        "85": 179.5
+        "100": 183.5
+
+  - name: "16V31_1"
+    max_power_kw: 10080
+    min_load_percent: 25
+    max_load_percent: 85
+    startup_cost_mj: 400
+    fuel_types: ["HFO", "LFO"]
+    sfoc:
+      HFO:
+        "50": 182.5
+        "75": 174.1
+        "85": 172.6
+        "100": 175.3
+      LFO:
+        "50": 179.6
+        "75": 171.4
+        "85": 170.2
+        "100": 172.9
+
+  - name: "16V31_2"
+    max_power_kw: 10080
+    min_load_percent: 25
+    max_load_percent: 85
+    startup_cost_mj: 400
+    fuel_types: ["HFO", "LFO"]
+    sfoc:
+      HFO:
+        "50": 182.5
+        "75": 174.1
+        "85": 172.6
+        "100": 175.3
+      LFO:
+        "50": 179.6
+        "75": 171.4
+        "85": 170.2
+        "100": 172.9
