@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
 
 from engine_loader import load_engines_from_yaml
 from energy.opt_control import DispatchOptimizer
+from energy import propulsion_power, hotel_power, aux_power
 
 
 def main() -> None:
@@ -24,6 +25,50 @@ def main() -> None:
     for eng in data["engines"][:2]:
         curve = {float(k): v for k, v in eng["sfoc"]["HFO"].items()}
         curves.append(curve)
+
+    # compute power components for plotting
+    prop_power = [propulsion_power(env[t], speeds[t]) for t in range(horizon)]
+    hotel = [hotel_power(env[t]) for t in range(horizon)]
+    auxiliary = [aux_power(env[t], prop_power[t]) for t in range(horizon)]
+
+    cumulative_dist = np.cumsum(speeds) * 3600
+
+    # power components figure
+    fig3, (axp, axh, axa) = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+    axp.plot(time, prop_power, label="Propulsion", color="tab:blue")
+    axp.set_ylabel("P_prop (W)")
+    axh.plot(time, hotel, label="Hotel", color="tab:orange")
+    axh.set_ylabel("P_hotel (W)")
+    axa.plot(time, auxiliary, label="Auxiliary", color="tab:green")
+    axa.set_ylabel("P_aux (W)")
+    for ax in (axp, axh, axa):
+        ax.grid(True, linestyle="--", alpha=0.5)
+    axa.set_xlabel("Timestep")
+    fig3.tight_layout()
+
+    # environment figure
+    wind = [e.get("wind_speed", 0.0) for e in env]
+    angle = [e.get("wind_angle_diff", 0.0) for e in env]
+    wave = [e.get("wave_height", 0.0) for e in env]
+    fig4, (axw, axang, axwave) = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+    axw.plot(time, wind, color="tab:blue")
+    axw.set_ylabel("Wind (m/s)")
+    axang.plot(time, angle, color="tab:orange")
+    axang.set_ylabel("Angle (deg)")
+    axwave.plot(time, wave, color="tab:green")
+    axwave.set_ylabel("Wave (m)")
+    for ax in (axw, axang, axwave):
+        ax.grid(True, linestyle="--", alpha=0.5)
+    axwave.set_xlabel("Timestep")
+    fig4.tight_layout()
+
+    # distance over time figure
+    fig5, axd = plt.subplots(figsize=(8, 4))
+    axd.plot(time, cumulative_dist, marker="o")
+    axd.set_xlabel("Timestep")
+    axd.set_ylabel("Distance (m)")
+    axd.grid(True, linestyle="--", alpha=0.5)
+    fig5.tight_layout()
 
     horizon = 9
     env = [
