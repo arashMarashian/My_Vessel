@@ -3,6 +3,7 @@ import sys
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -16,7 +17,7 @@ from energy import propulsion_power, hotel_power, aux_power
 
 def main() -> None:
     """Run the dispatch optimizer for a short horizon and plot results."""
-    path = os.path.join("data", "engine_data.yaml")
+    path = os.path.join("data", "engine_data_viking_star.yaml")
     engines = load_engines_from_yaml(path)[:2]
 
     with open(path) as f:
@@ -27,8 +28,14 @@ def main() -> None:
         curves.append(curve)
         
     horizon = 9
+    random.seed(42)  # Optional: Ensures consistent results across runs
+
     env = [
-        {"wind_speed": 5.0, "wind_angle_diff": 0.0, "wave_height": 1.0}
+        {
+            "wind_speed": round(random.uniform(2.0, 12.0), 1),            # realistic 2–12 m/s
+            "wind_angle_diff": round(random.uniform(0.0, 180.0), 1),      # 0° (tailwind) to 180° (headwind)
+            "wave_height": round(random.uniform(0.5, 3.5), 2),            # mild to rough sea
+        }
         for _ in range(horizon)
     ]
 
@@ -81,7 +88,7 @@ def main() -> None:
 
 
     # compute power components for plotting
-    prop_power = [propulsion_power(env[t], speeds[t]) for t in range(horizon)]
+    prop_power = [propulsion_power(speeds[t]) for t in range(horizon)]
     hotel = [hotel_power(env[t]) for t in range(horizon)]
     auxiliary = [aux_power(env[t], prop_power[t]) for t in range(horizon)]
 
