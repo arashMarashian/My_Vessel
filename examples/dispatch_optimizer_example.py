@@ -17,13 +17,13 @@ from energy import propulsion_power, hotel_power, aux_power
 
 def main() -> None:
     """Run the dispatch optimizer for a short horizon and plot results."""
-    path = os.path.join("data", "engine_data_viking_star.yaml")
-    engines = load_engines_from_yaml(path)[:2]
+    path = os.path.join("data", "engine_data_main.yaml")
+    engines = load_engines_from_yaml(path)[:4]
 
     with open(path) as f:
         data = yaml.safe_load(f)
     curves = []
-    for eng in data["engines"][:2]:
+    for eng in data["engines"][:4]:
         curve = {float(k): v for k, v in eng["sfoc"]["HFO"].items()}
         curves.append(curve)
         
@@ -46,7 +46,7 @@ def main() -> None:
         dt_hours=1.0,
         battery_capacity_kwh=500.0,
         sfoc_curves=curves,
-        target_distance_m=300_000.0,
+        target_distance_m=320_000.0,
     )
 
     solver = "ipopt"

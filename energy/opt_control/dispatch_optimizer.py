@@ -25,7 +25,7 @@ class DispatchOptimizer:
         soc0: float = 0.5,
         eta_c: float = 0.95,
         eta_d: float = 0.95,
-        v_max: float = 10.0,
+        v_max: float = 12.0,
         target_distance_m: float | None = None,
         lambda_bat: float = 10.0,
         lambda_switch: float = 1.0,
