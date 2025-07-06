@@ -104,7 +104,7 @@ def main() -> None:
     fig2.tight_layout()
 
     # Compute power components
-    prop_power = [propulsion_power(speeds[t]) for t in range(horizon)]
+    prop_power = [propulsion_power(env_list[t], speeds[t]) for t in range(horizon)]
     hotel = [hotel_power(env_list[t]) for t in range(horizon)]
     auxiliary = [aux_power(env_list[t], prop_power[t]) for t in range(horizon)]
 
