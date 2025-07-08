@@ -49,6 +49,7 @@ def main() -> None:
     grid[3:17, 10] = 1
     start = (2, 2)
     goal = (17, 17)
+    overall_heading = heading_degrees(start, goal)
 
     planner = AStarPlanner()
     path = planner.plan(start, goal, grid)
@@ -59,6 +60,10 @@ def main() -> None:
     env_grid = generate_environment_grid(size=grid.shape)
     env_on_path = extract_environment_along_path(env_grid, path_xy)
     env_list = build_env_list(env_grid, path_xy)
+
+    wind_speed_map = env_grid["wind_speed"]
+    wind_angle_map = np.abs((env_grid["wind_angle"] - overall_heading + 180) % 360 - 180)
+    wave_height_map = env_grid["wave_height"]
 
     # 3. Load engines and set up optimizer
     path_to_data = os.path.join("data", "engine_data_main.yaml")
@@ -135,6 +140,29 @@ def main() -> None:
     ax_env.grid(True, linestyle="--", alpha=0.5)
     ax_env.legend()
     fig4.tight_layout()
+
+    # Visualize environmental fields across the grid
+    fig5, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    im0 = axes[0].imshow(wind_speed_map, cmap="viridis", origin="lower", aspect="auto")
+    axes[0].set_title("Wind Speed (m/s)")
+    axes[0].set_xlabel("X")
+    axes[0].set_ylabel("Y")
+    fig5.colorbar(im0, ax=axes[0])
+
+    im1 = axes[1].imshow(wind_angle_map, cmap="twilight", origin="lower", aspect="auto")
+    axes[1].set_title("Wind Angle Diff (deg)")
+    axes[1].set_xlabel("X")
+    axes[1].set_ylabel("Y")
+    fig5.colorbar(im1, ax=axes[1])
+
+    im2 = axes[2].imshow(wave_height_map, cmap="coolwarm", origin="lower", aspect="auto")
+    axes[2].set_title("Wave Height (m)")
+    axes[2].set_xlabel("X")
+    axes[2].set_ylabel("Y")
+    fig5.colorbar(im2, ax=axes[2])
+
+    fig5.tight_layout()
 
     plt.tight_layout()
 
