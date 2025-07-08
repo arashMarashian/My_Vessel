@@ -92,6 +92,8 @@ def main() -> None:
     time = np.arange(horizon)
     speeds = results["speed"]
     soc = results["soc"][:-1]
+    engine_loads = np.array(results["loads"]).T
+    n_engines = len(engines)
 
     plt.figure(figsize=(5, 5))
     plot_map(grid)
@@ -107,6 +109,33 @@ def main() -> None:
     ax2.plot(time, soc, marker="s", color="tab:orange", label="SOC")
     ax2.set_ylabel("Battery SOC")
     fig2.tight_layout()
+
+    # Plot engine loads over time
+    plt.figure(figsize=(10, 6))
+    for i in range(n_engines):
+        plt.plot(engine_loads[i], label=f"Engine {i+1}")
+    plt.xlabel("Time step")
+    plt.ylabel("Load (0-1)")
+    plt.title("Engine Loads Over Time")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Compute SFOC per engine over time
+    sfoc_values = np.zeros((n_engines, horizon))
+    for i in range(n_engines):
+        for t in range(horizon):
+            sfoc_values[i, t] = engines[i].get_fuel_consumption(engine_loads[i, t] * 100)
+
+    plt.figure(figsize=(10, 6))
+    for i in range(n_engines):
+        plt.plot(sfoc_values[i], label=f"SFOC Engine {i+1}")
+    plt.xlabel("Time step")
+    plt.ylabel("SFOC (g/kWh)")
+    plt.title("SFOC per Engine over Time")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
 
     # Compute power components
     prop_power = [propulsion_power(env_list[t], speeds[t]) for t in range(horizon)]
