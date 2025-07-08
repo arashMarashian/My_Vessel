@@ -120,6 +120,24 @@ def main() -> None:
         ax.grid(True, linestyle="--", alpha=0.5)
     fig3.tight_layout()
 
+    # Plot environmental conditions along the horizon
+    wind_speed = [c["wind_speed"] for c in env_list]
+    wind_angle_diff = [c["wind_angle_diff"] for c in env_list]
+    wave_height = [c["wave_height"] for c in env_list]
+
+    fig4, ax_env = plt.subplots(figsize=(8, 4))
+    ax_env.plot(time, wind_speed, label="Wind Speed (m/s)")
+    ax_env.plot(time, wind_angle_diff, label="Wind Angle Diff (deg)")
+    ax_env.plot(time, wave_height, label="Wave Height (m)")
+    ax_env.set_xlabel("Timestep")
+    ax_env.set_ylabel("Value")
+    ax_env.set_title("Environmental Conditions")
+    ax_env.grid(True, linestyle="--", alpha=0.5)
+    ax_env.legend()
+    fig4.tight_layout()
+
+    plt.tight_layout()
+
     plt.show()
 
 
