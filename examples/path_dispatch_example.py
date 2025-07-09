@@ -121,15 +121,16 @@ def main() -> None:
     plt.grid(True)
     plt.tight_layout()
 
-    # Compute SFOC per engine over time
-    sfoc_values = np.zeros((n_engines, horizon))
-    for i in range(n_engines):
-        for t in range(horizon):
-            sfoc_values[i, t] = engines[i].get_fuel_consumption(engine_loads[i, t] * 100)
-
+    # Compute SFOC per engine over time, ignoring engines never used
+    sfoc_values = np.full((n_engines, horizon), np.nan)
     plt.figure(figsize=(10, 6))
     for i in range(n_engines):
-        plt.plot(sfoc_values[i], label=f"SFOC Engine {i+1}")
+        if np.max(engine_loads[i]) > 1e-3:
+            for t in range(horizon):
+                load = engine_loads[i, t]
+                if load > 1e-3:
+                    sfoc_values[i, t] = engines[i].get_fuel_consumption(load * 100)
+            plt.plot(sfoc_values[i], label=f"SFOC Engine {i+1}")
     plt.xlabel("Time step")
     plt.ylabel("SFOC (g/kWh)")
     plt.title("SFOC per Engine over Time")
