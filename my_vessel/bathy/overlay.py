@@ -13,24 +13,31 @@ def make_overlay_data_url(arr: np.ndarray, bounds: Tuple[float, float, float, fl
                           cmap_name: str = "viridis", opacity: float = 0.7) -> Tuple[str, Tuple[float, float, float, float], int]:
     """
     Returns (data_url_png, (south, west, north, east), visible_px)
-    * NaNs are fully transparent
-    * Values outside [vmin, vmax] are fully transparent
+    - Land (arr >= 0) and NaNs are fully transparent
+    - Only water depths (arr < 0) are colorized
     """
     S, W, N, E = bounds
     a = arr.astype("float32")
-    mask = ~np.isfinite(a)
+    water = np.isfinite(a) & (a < 0.0)
     if vmin is None:
-        vmin = float(np.nanpercentile(a, 5)) if np.isfinite(a).any() else 0.0
+        vmin = float(np.nanpercentile(a[water], 5)) if np.any(water) else -1.0
     if vmax is None:
-        vmax = float(np.nanpercentile(a, 95)) if np.isfinite(a).any() else 1.0
+        vmax = float(np.nanpercentile(a[water], 95)) if np.any(water) else 0.0
+    # clip to [vmin, vmax] for color scaling
     norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
     cmap = plt.get_cmap(cmap_name)
-    rgba = cmap(norm(a))
-    # Transparent where NaN or outside range
-    outside = (a < vmin) | (a > vmax) | ~np.isfinite(a)
-    rgba[..., 3] = np.where(outside, 0.0, opacity).astype("float32")
+
+    rgba = np.zeros((a.shape[0], a.shape[1], 4), dtype="float32")
+    if np.any(water):
+        colored = cmap(norm(a))
+        rgba[...] = colored
+        # alpha only on water inside range
+        inside = water & (a >= vmin) & (a <= vmax)
+        rgba[..., 3] = np.where(inside, opacity, 0.0).astype("float32")
+    # everything else (land or NaN) stays alpha=0
+
     h, w = rgba.shape[:2]
-    visible = int((~outside).sum())
+    visible = int((rgba[..., 3] > 0).sum())
 
     fig = plt.figure(frameon=False)
     fig.set_size_inches(w / 100.0, h / 100.0)

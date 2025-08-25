@@ -1,14 +1,31 @@
-import argparse, json, csv
+import argparse, json, csv, os
 import matplotlib.pyplot as plt
 import folium
 
 from my_vessel.bathy.overlay import make_overlay_data_url
-from my_vessel.bathy.grid import oriented_array_and_bounds, downsample, latlon_to_rc, rc_to_latlon
+from my_vessel.bathy.grid import oriented_array_and_bounds, downsample, latlon_to_rc
 from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
 from my_vessel.bathy.fetch import BBox, fetch_geotiff_bytes, read_raster_from_bytes, read_raster_from_file
-from energy.vessel_energy_system import VesselEnergySystem, Battery
+from energy.vessel_energy_system import (
+    VesselEnergySystem,
+    Battery,
+    hotel_power,
+    aux_power,
+)
+from energy.power_model import propulsion_power
 from engine_loader import load_engines_from_yaml
+
+
+def _save_plot(x, y, title, xlabel, ylabel, out_png):
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.plot(x, y)
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.savefig(out_png, dpi=180)
+    plt.close()
 
 
 def main() -> None:
@@ -36,9 +53,12 @@ def main() -> None:
     p.add_argument("--wind-speed", type=float, default=0.0)
     p.add_argument("--wind-angle-diff", type=float, default=0.0)
     p.add_argument("--wave-height", type=float, default=0.0)
+    p.add_argument("--out-dir", type=str, default="outputs", help="Directory to write outputs")
     p.add_argument("--out-prefix", type=str, default="route_out")
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
 
     if args.local_tif:
         src = read_raster_from_file(args.local_tif)
@@ -91,9 +111,24 @@ def main() -> None:
                 environment=environment,
                 timestep_hours=timestep_seconds / 3600.0,
             )
+            engine_info = []
+            engine_kw = []
+            for eng, load, fuel_g in zip(self.ves.engines, loads, res.get("fuel_used_g", [])):
+                kw = load / 100.0 * eng.max_power
+                engine_kw.append(kw)
+                sfoc = eng.get_fuel_consumption(load)
+                engine_info.append({"power_kw": kw, "sfoc_g_per_kwh": sfoc})
+            P_prop_w = propulsion_power(environment, target_speed)
+            total_prop_kw = P_prop_w / 1000.0
+            hotel_kw = hotel_power(environment) / 1000.0
+            aux_kw = aux_power(environment, P_prop_w) / 1000.0
             return {
                 "achieved_speed_knots": res.get("actual_speed", 0.0),
                 "fuel_consumed_kg": sum(res.get("fuel_used_g", [])) / 1000.0,
+                "engines": engine_info,
+                "total_propulsion_power_kw": total_prop_kw,
+                "hotel_kw": hotel_kw,
+                "aux_kw": aux_kw,
             }
 
     env_const = {
@@ -106,31 +141,40 @@ def main() -> None:
         dt_s=args.dt_s, env_const=env_const
     )
 
-    # Save GeoJSON
+    # Save enriched CSV
+    csv_path = os.path.join(args.out_dir, f"{args.out_prefix}.csv")
+    with open(csv_path, "w", newline="") as f:
+        max_e = max((len(r.get("per_engine_kw", [])) for r in profile["segments"]), default=0)
+        base_fields = [
+            "i", "lat", "lon", "v_kn", "seg_nm", "t_s", "t_total_s", "fuel_kg",
+            "fuel_total_kg", "total_prop_kw", "hotel_kw", "aux_kw",
+            "env_wind_speed", "env_wind_angle_diff", "env_wave_height"
+        ]
+        fieldnames = base_fields + [f"e{j}_kw" for j in range(max_e)] + [f"e{j}_sfoc_g_per_kwh" for j in range(max_e)]
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in profile["segments"]:
+            row = {k: r.get(k, "") for k in base_fields}
+            for j in range(max_e):
+                row[f"e{j}_kw"] = r.get("per_engine_kw", [None] * max_e)[j] if j < len(r.get("per_engine_kw", [])) else ""
+                row[f"e{j}_sfoc_g_per_kwh"] = r.get("per_engine_sfoc_g_per_kwh", [None] * max_e)[j] if j < len(r.get("per_engine_sfoc_g_per_kwh", [])) else ""
+            w.writerow(row)
+
+    # Save GeoJSON with totals
+    gj_path = os.path.join(args.out_dir, f"{args.out_prefix}.geojson")
     gj = {
         "type": "FeatureCollection",
         "features": [{
             "type": "Feature",
             "geometry": {"type": "LineString", "coordinates": [[lon, lat] for lat, lon in path_ll]},
-            "properties": {
-                "min_depth_m": min_depth,
-                "total_nm": profile["total_nm"],
-                "total_time_s": profile["total_time_s"],
-                "total_fuel_kg": profile["total_fuel_kg"],
-            },
+            "properties": {"min_depth_m": min_depth, **profile["totals"]},
         }],
     }
-    with open(f"{args.out_prefix}.geojson", "w") as f:
+    with open(gj_path, "w") as f:
         json.dump(gj, f)
 
-    # Save CSV per segment
-    with open(f"{args.out_prefix}.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["i", "lat", "lon", "v_kn", "seg_nm", "time_s", "fuel_kg"])
-        w.writeheader()
-        for row in profile["segments"]:
-            w.writerow(row)
-
-    # Static plot
+    # Save static route plot
+    png_route = os.path.join(args.out_dir, f"{args.out_prefix}.png")
     plt.figure()
     if path_ll:
         lats = [lat for lat, lon in path_ll]
@@ -139,10 +183,12 @@ def main() -> None:
     plt.title("Planned Route (lat/lon)")
     plt.xlabel("lon")
     plt.ylabel("lat")
-    plt.savefig(f"{args.out_prefix}.png", dpi=180)
+    plt.savefig(png_route, dpi=180)
+    plt.close()
 
     # Interactive map
     if args.map_html:
+        map_path = os.path.join(args.out_dir, args.map_html)
         center = list(path_ll[0]) if path_ll else [(bounds[2] + bounds[0]) / 2, (bounds[1] + bounds[3]) / 2]
         m = folium.Map(location=center, zoom_start=8, tiles=None)
         if args.map_tiles.lower() == "openstreetmap":
@@ -163,14 +209,66 @@ def main() -> None:
         ).add_to(m)
 
         if path_ll:
-            folium.PolyLine([(lat, lon) for lat, lon in path_ll], color="#00A", weight=4, opacity=0.9, tooltip="Route").add_to(m)
+            folium.PolyLine([(lat, lon) for lat, lon in path_ll], color="#0066FF", weight=4, opacity=0.9, tooltip="Route").add_to(m)
             folium.Marker(location=list(path_ll[0]), popup="Start").add_to(m)
             folium.Marker(location=list(path_ll[-1]), popup="Goal").add_to(m)
 
         folium.LayerControl(collapsed=False).add_to(m)
-        m.save(args.map_html)
+        m.save(map_path)
         if args.verbose:
-            print(f"[DEBUG] wrote interactive map -> {args.map_html}")
+            print(f"[DEBUG] map -> {map_path}, visible bathy px = {visible}")
+
+    # Additional time-series plots
+    ts = [r["t_total_s"] / 3600.0 for r in profile["segments"]]
+    speed_kn = [r["v_kn"] for r in profile["segments"]]
+    fuel_total = [r["fuel_total_kg"] for r in profile["segments"]]
+    total_kw = [r["total_prop_kw"] for r in profile["segments"]]
+    hotel_kw = [r["hotel_kw"] for r in profile["segments"]]
+    aux_kw = [r["aux_kw"] for r in profile["segments"]]
+    wind = [r["env_wind_speed"] for r in profile["segments"]]
+    wind_diff = [r["env_wind_angle_diff"] for r in profile["segments"]]
+    wave_h = [r["env_wave_height"] for r in profile["segments"]]
+
+    _save_plot(ts, fuel_total, "Fuel cumulative vs time", "time [h]", "fuel [kg]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_fuel_vs_time.png"))
+    _save_plot(ts, speed_kn, "Speed vs time", "time [h]", "speed [kn]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_speed_vs_time.png"))
+    _save_plot(ts, total_kw, "Total propulsion power vs time", "time [h]", "power [kW]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_total_power_vs_time.png"))
+    _save_plot(ts, hotel_kw, "Hotel power vs time", "time [h]", "power [kW]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_hotel_power_vs_time.png"))
+    _save_plot(ts, aux_kw, "Aux power vs time", "time [h]", "power [kW]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_aux_power_vs_time.png"))
+
+    max_e = 0
+    for r in profile["segments"]:
+        max_e = max(max_e, len(r.get("per_engine_kw", [])))
+    for j in range(max_e):
+        ej = [
+            (r.get("per_engine_kw", [None] * max_e)[j] if j < len(r.get("per_engine_kw", [])) else 0.0)
+            for r in profile["segments"]
+        ]
+        _save_plot(ts, ej, f"Engine {j} power vs time", "time [h]", "power [kW]",
+                   os.path.join(args.out_dir, f"{args.out_prefix}_engine{j}_power_vs_time.png"))
+
+    for j in range(max_e):
+        sfocj = [
+            (
+                r.get("per_engine_sfoc_g_per_kwh", [None] * max_e)[j]
+                if j < len(r.get("per_engine_sfoc_g_per_kwh", []))
+                else 0.0
+            )
+            for r in profile["segments"]
+        ]
+        _save_plot(ts, sfocj, f"Engine {j} SFOC vs time", "time [h]", "SFOC [g/kWh]",
+                   os.path.join(args.out_dir, f"{args.out_prefix}_engine{j}_sfoc_vs_time.png"))
+
+    _save_plot(ts, wind, "Wind speed vs time", "time [h]", "wind [m/s]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_wind_vs_time.png"))
+    _save_plot(ts, wind_diff, "Wind angle diff vs time", "time [h]", "angle [deg]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_wind_angle_vs_time.png"))
+    _save_plot(ts, wave_h, "Wave height vs time", "time [h]", "Hs [m]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_wave_vs_time.png"))
 
     if args.verbose:
         import numpy as np
@@ -181,8 +279,10 @@ def main() -> None:
         print(f"[DEBUG] bathy: min={np.nanmin(arr):.2f}, max={np.nanmax(arr):.2f}, NaN%={np.isnan(arr).mean()*100:.1f}%")
         print(f"[DEBUG] grid shape={grid.shape}, free={free} ({free/total*100:.1f}%), obst={obst} ({obst/total*100:.1f}%)")
         print(f"[DEBUG] path_rc length={len(path_rc)}, path_ll length={len(path_ll)}")
-        print(f"[DEBUG] totals: nm={profile['total_nm']:.2f}, time_h={profile['total_time_s']/3600.0:.2f}, fuel_kg={profile['total_fuel_kg']:.2f}")
-        print(f"[DEBUG] saved {args.out_prefix}.geojson {args.out_prefix}.csv {args.out_prefix}.png")
+        print(
+            f"[DEBUG] totals: nm={profile['totals']['nm']:.2f}, time_h={profile['totals']['time_s']/3600.0:.2f}, fuel_kg={profile['totals']['fuel_kg']:.2f}"
+        )
+        print(f"[DEBUG] wrote: {gj_path} {csv_path} {png_route}")
 
 
 if __name__ == "__main__":

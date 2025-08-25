@@ -75,13 +75,14 @@ profile:
 ```bash
 bathy-route --bbox 60.1 20.1 60.5 20.7 --draft 6.5 --ukc 1.0 \
   --start 60.45 20.15 --goal 60.15 20.65 --target-speed-kn 12 \
-  --dilate-cells 1 --downsample 2 --out-prefix demo \
-  --map-html demo.html --verbose
+  --dilate-cells 1 --downsample 2 --out-dir outputs --out-prefix demo \
+  --map-html demo_map.html --verbose
 ```
 
-The command writes `demo.geojson`, `demo.csv`, and `demo.png` to the current
-directory and, if `--map-html` is provided, an interactive Leaflet map overlaying
-the bathymetry and planned route.
+The command writes `demo.geojson`, `demo.csv`, and `demo.png` to the `outputs/`
+directory and, if `--map-html` is provided, an interactive Leaflet map
+(`demo_map.html`). Additional time-series plots such as fuel usage and speed vs
+time are also saved in the same directory.
 
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
