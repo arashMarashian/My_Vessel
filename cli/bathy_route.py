@@ -10,7 +10,7 @@ from my_vessel.bathy.fetch import (
 from my_vessel.bathy.grid import oriented_array_and_bounds, downsample
 from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
-from my_vessel.energy import VesselEnergySystem
+from my_vessel.energy import Battery, VesselEnergySystem
 from engine_loader import load_engines_from_yaml
 
 
@@ -71,7 +71,7 @@ def main() -> None:
         print(f"[DEBUG] goal  rc={(gr, gc)} -> {cellinfo(gr, gc)}")
 
     engines = load_engines_from_yaml(args.engine_yaml)
-    ves = VesselEnergySystem(engines, battery=None)
+    ves = VesselEnergySystem(engines, battery=Battery(capacity_kwh=1e5))
     prof = feasible_speed_profile(
         ves, path_ll, target_speed_knots=args.target_speed_kn, dt_s=args.dt_s
     )
