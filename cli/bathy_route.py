@@ -6,6 +6,7 @@ from my_vessel.bathy.overlay import make_overlay_data_url
 from my_vessel.bathy.grid import oriented_array_and_bounds, downsample, latlon_to_rc
 from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
+from my_vessel.environment.env_sources import sample_env_along_route
 from my_vessel.bathy.fetch import BBox, fetch_geotiff_bytes, read_raster_from_bytes, read_raster_from_file
 from energy.vessel_energy_system import (
     VesselEnergySystem,
@@ -53,6 +54,10 @@ def main() -> None:
     p.add_argument("--wind-speed", type=float, default=0.0)
     p.add_argument("--wind-angle-diff", type=float, default=0.0)
     p.add_argument("--wave-height", type=float, default=0.0)
+    p.add_argument("--env-source", type=str, default="constant", choices=["constant", "openmeteo"],
+                   help="Environment provider")
+    p.add_argument("--depart-iso", type=str, default=None,
+                   help="Departure time (UTC ISO8601), required for env-source=openmeteo")
     p.add_argument("--out-dir", type=str, default="outputs", help="Directory to write outputs")
     p.add_argument("--out-prefix", type=str, default="route_out")
     p.add_argument("--verbose", action="store_true")
@@ -131,14 +136,23 @@ def main() -> None:
                 "aux_kw": aux_kw,
             }
 
-    env_const = {
-        "wind_speed": args.wind_speed,
-        "wind_angle_diff": args.wind_angle_diff,
-        "wave_height": args.wave_height,
-    }
+    if args.env_source == "constant":
+        env_series = [
+            {
+                "wind_speed": args.wind_speed,
+                "wind_angle_diff": args.wind_angle_diff,
+                "wave_height": args.wave_height,
+            }
+            for _ in path_ll
+        ]
+    else:
+        if not args.depart_iso:
+            raise SystemExit("--depart-iso is required when --env-source=openmeteo")
+        env_series = sample_env_along_route(path_ll, args.depart_iso, args.target_speed_kn)
+
     profile = feasible_speed_profile(
         _VESAdapter(ves), path_ll, target_speed_knots=args.target_speed_kn,
-        dt_s=args.dt_s, env_const=env_const
+        dt_s=args.dt_s, env_const=env_series
     )
 
     # Save enriched CSV
@@ -156,8 +170,16 @@ def main() -> None:
         for r in profile["segments"]:
             row = {k: r.get(k, "") for k in base_fields}
             for j in range(max_e):
-                row[f"e{j}_kw"] = r.get("per_engine_kw", [None] * max_e)[j] if j < len(r.get("per_engine_kw", [])) else ""
-                row[f"e{j}_sfoc_g_per_kwh"] = r.get("per_engine_sfoc_g_per_kwh", [None] * max_e)[j] if j < len(r.get("per_engine_sfoc_g_per_kwh", [])) else ""
+                row[f"e{j}_kw"] = (
+                    r.get("per_engine_kw", [None] * max_e)[j]
+                    if j < len(r.get("per_engine_kw", []))
+                    else ""
+                )
+                row[f"e{j}_sfoc_g_per_kwh"] = (
+                    r.get("per_engine_sfoc_g_per_kwh", [None] * max_e)[j]
+                    if j < len(r.get("per_engine_sfoc_g_per_kwh", []))
+                    else ""
+                )
             w.writerow(row)
 
     # Save GeoJSON with totals

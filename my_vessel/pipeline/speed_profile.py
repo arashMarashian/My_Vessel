@@ -17,7 +17,7 @@ def feasible_speed_profile(
     path_ll: List[Tuple[float, float]],
     target_speed_knots: float,
     dt_s: int = 60,
-    env_const: Dict[str, float] | None = None,
+    env_const: Dict[str, float] | List[Dict[str, float]] | None = None,
     hotel_power_kw: float = 0.0,
     aux_power_kw: float = 0.0,
 ) -> Dict[str, Any]:
@@ -42,7 +42,10 @@ def feasible_speed_profile(
         lat2, lon2 = path_ll[i]
         dist_nm = haversine_km(lat1, lon1, lat2, lon2) * 0.539957
 
-        env = dict(env_const)  # copy
+        if isinstance(env_const, list):
+            env = dict(env_const[i - 1]) if i - 1 < len(env_const) else {}
+        else:
+            env = dict(env_const)
         # You can enrich env here with gridded fields if available in the future
         step = ves.step(environment=env, target_speed=target_speed_knots, timestep_seconds=dt_s)
 
