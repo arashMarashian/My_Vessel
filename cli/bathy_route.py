@@ -50,7 +50,25 @@ def main() -> None:
         tuple(args.goal),
         min_depth_m=min_depth,
         dilate_cells=args.dilate_cells,
+        verbose=args.verbose,
     )
+
+    if args.verbose:
+        from my_vessel.bathy.grid import latlon_to_rc
+        import numpy as np
+        sr, sc = latlon_to_rc(*args.start, bounds, grid.shape)
+        gr, gc = latlon_to_rc(*args.goal, bounds, grid.shape)
+
+        def cellinfo(r, c):
+            H, W = grid.shape
+            if not (0 <= r < H and 0 <= c < W):
+                return "OOB"
+            depth = arr[r, c]
+            depth_s = "nan" if np.isnan(depth) else f"{float(depth):.2f}m"
+            return f"{'obst' if grid[r, c] == 1 else 'free'}, depth={depth_s}"
+
+        print(f"[DEBUG] start rc={(sr, sc)} -> {cellinfo(sr, sc)}")
+        print(f"[DEBUG] goal  rc={(gr, gc)} -> {cellinfo(gr, gc)}")
 
     engines = load_engines_from_yaml(args.engine_yaml)
     ves = VesselEnergySystem(engines, battery=None)
