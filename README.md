@@ -58,6 +58,29 @@ python examples/a_star_example.py
 Both approaches create a small occupancy grid and use
 `AStarPlanner` to find a path while visualizing the result.
 
+## Bathymetry routing
+
+The repository includes an optional pipeline for planning vessel routes using
+real bathymetry data. To fetch remote DEM tiles you need an
+OpenTopography API key. Create a `.env` file or export the variable in your
+shell:
+
+```bash
+export OPENTOPO_API_KEY=YOUR_KEY_HERE
+```
+
+Example command to download bathymetry, plan a route, and compute a speed
+profile:
+
+```bash
+bathy-route --bbox 60.1 20.1 60.5 20.7 --draft 6.5 --ukc 1.0 \
+  --start 60.45 20.15 --goal 60.15 20.65 --target-speed-kn 12 \
+  --dilate-cells 1 --downsample 2 --out-prefix demo
+```
+
+The command writes `demo.geojson`, `demo.csv`, and `demo.png` to the current
+directory.
+
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
 
