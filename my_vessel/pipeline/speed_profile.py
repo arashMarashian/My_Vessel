@@ -1,11 +1,6 @@
 from __future__ import annotations
-
-from typing import Dict, List, Tuple
-
+from typing import List, Dict, Tuple
 import math
-
-from energy.vessel_energy_system import VesselEnergySystem
-from energy import aux_power, hotel_power, propulsion_power
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -17,59 +12,40 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
-def feasible_speed_profile(
-    ves: VesselEnergySystem,
-    path_ll: List[Tuple[float, float]],
-    target_speed_knots: float,
-    dt_s: int = 60,
-    env_const: Dict | None = None,
-):
+def feasible_speed_profile(ves, path_ll: List[Tuple[float, float]],
+                           target_speed_knots: float, dt_s: int = 60,
+                           env_const: Dict = None):
+    """
+    Step a VesselEnergySystem along the path. Returns dict with segments and totals.
+    Assumes ves.step(environment, target_speed, timestep_seconds) -> dict with:
+      - "achieved_speed_knots" and "fuel_consumed_kg" (per step)
+    """
     if env_const is None:
         env_const = {}
-    out = []
+    segs = []
     total_time_s = 0.0
     total_fuel_kg = 0.0
+    total_nm = 0.0
+    if len(path_ll) < 2:
+        return {"segments": [], "total_time_s": 0.0, "total_fuel_kg": 0.0, "total_nm": 0.0}
     for i in range(1, len(path_ll)):
-        lat1, lon1 = path_ll[i - 1]
+        lat1, lon1 = path_ll[i-1]
         lat2, lon2 = path_ll[i]
         dist_nm = haversine_km(lat1, lon1, lat2, lon2) * 0.539957
+        # Try to hold target speed for dt; we scale outputs to segment duration
+        step = ves.step(environment=env_const, target_speed=target_speed_knots, timestep_seconds=dt_s)
+        v_ach = max(1e-6, step.get("achieved_speed_knots", target_speed_knots))
+        time_s = (dist_nm / v_ach) * 3600.0
+        # Scale fuel to segment time if step returns per-dt consumption
+        fuel_per_dt = float(step.get("fuel_consumed_kg", 0.0))
+        fuel_kg = fuel_per_dt * (time_s / dt_s)
 
-        # Estimate engine loads needed to meet power demand at target speed
-        P_prop = propulsion_power(env_const, target_speed_knots)
-        P_hotel = hotel_power(env_const)
-        P_aux = aux_power(env_const, P_prop)
-        demand_w = P_prop + P_hotel + P_aux
-        loads = []
-        per_engine = demand_w / max(1, len(ves.engines))
-        for eng in ves.engines:
-            load_pct = per_engine / (eng.max_power * 1000.0) * 100.0
-            load_pct = max(eng.min_load, min(eng.max_load, load_pct))
-            loads.append(load_pct)
-
-        step = ves.step(
-            controller_action={
-                "engine_loads": loads,
-                "battery_power": 0.0,
-                "target_speed": target_speed_knots,
-            },
-            environment=env_const,
-            timestep_hours=dt_s / 3600.0,
-        )
-        v_ach = float(step.get("actual_speed", 0.0))
-        time_s = (dist_nm / max(1e-6, v_ach)) * 3600.0
-        fuel_g = float(sum(step.get("fuel_used_g", [])))
-        fuel_kg = fuel_g / 1000.0 * (time_s / dt_s)
         total_time_s += time_s
         total_fuel_kg += fuel_kg
-        out.append(
-            {
-                "i": i,
-                "lat": lat2,
-                "lon": lon2,
-                "v_kn": v_ach,
-                "seg_nm": dist_nm,
-                "time_s": time_s,
-                "fuel_kg": fuel_kg,
-            }
-        )
-    return {"segments": out, "total_time_s": total_time_s, "total_fuel_kg": total_fuel_kg}
+        total_nm += dist_nm
+        segs.append({
+            "i": i, "lat": lat2, "lon": lon2,
+            "v_kn": v_ach, "seg_nm": dist_nm, "time_s": time_s, "fuel_kg": fuel_kg
+        })
+    return {"segments": segs, "total_time_s": total_time_s, "total_fuel_kg": total_fuel_kg, "total_nm": total_nm}
+

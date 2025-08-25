@@ -8,6 +8,7 @@ from .grid import (
     rc_to_latlon,
     latlon_to_rc,
 )
+from .overlay import make_overlay_data_url
 
 __all__ = [
     "BBox",
@@ -19,4 +20,5 @@ __all__ = [
     "bathy_to_occupancy",
     "rc_to_latlon",
     "latlon_to_rc",
+    "make_overlay_data_url",
 ]
