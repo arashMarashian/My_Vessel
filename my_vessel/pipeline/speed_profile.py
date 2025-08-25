@@ -4,12 +4,8 @@ from typing import Dict, List, Tuple
 
 import math
 
-from ..energy import (
-    VesselEnergySystem,
-    aux_power,
-    hotel_power,
-    propulsion_power,
-)
+from energy.vessel_energy_system import VesselEnergySystem
+from energy import aux_power, hotel_power, propulsion_power
 
 
 def haversine_km(lat1, lon1, lat2, lon2):

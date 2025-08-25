@@ -9,16 +9,30 @@ from ..config import MAX_PIXELS
 
 
 def oriented_array_and_bounds(src) -> tuple[np.ndarray, Tuple[float, float, float, float]]:
-    """Return raster band as north-up array and bounds (S, W, N, E)."""
     a = src.read(1).astype("float32")
     nodata = src.nodata
     if nodata is not None:
         a = np.where(a == nodata, np.nan, a)
+
+    # Re-orient using affine signs to ensure north-up, west-left
     if src.transform.e > 0:  # row increases upward -> flip vertically
         a = np.flipud(a)
     if src.transform.a < 0:  # col increases leftward -> flip horizontally
         a = np.fliplr(a)
-    south, west, north, east = src.bounds.bottom, src.bounds.left, src.bounds.top, src.bounds.right
+
+    # Require geographic coordinates
+    if src.crs and "4326" not in str(src.crs):
+        raise ValueError(
+            f"Unsupported CRS for bathy raster: {src.crs}. Expected EPSG:4326 (lat/lon)."
+        )
+
+    south, west, north, east = (
+        src.bounds.bottom,
+        src.bounds.left,
+        src.bounds.top,
+        src.bounds.right,
+    )
+
     if a.size > MAX_PIXELS:
         raise ValueError(f"ROI too large ({a.shape}), reduce bbox or downsample.")
     return a, (south, west, north, east)

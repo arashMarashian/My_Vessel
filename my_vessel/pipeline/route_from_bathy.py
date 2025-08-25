@@ -5,8 +5,8 @@ from typing import List, Tuple, Optional
 import numpy as np
 
 from ..bathy.grid import bathy_to_occupancy, latlon_to_rc, rc_to_latlon
-from ..path_planner.a_star_planner import AStarPlanner
-from ..path_planner.utils import densify_path, smooth_path
+from path_planner.a_star_planner import AStarPlanner
+from path_planner.utils import densify_path, smooth_path
 
 
 def plan_route(
