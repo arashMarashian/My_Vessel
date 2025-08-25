@@ -32,7 +32,6 @@ def propulsion_power(
     float
         Propulsion power in watts.
     """
-
     defaults = {
         "k1": 250.0,  # frictional resistance
         "k2": 80.0,  # wave-making drag

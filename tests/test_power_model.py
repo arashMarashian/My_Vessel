@@ -14,11 +14,11 @@ def test_propulsion_power_example():
     speed = 8.0
     P = propulsion_power(env, speed)
 
-    k1 = 300.0
-    k2 = 100.0
-    A_proj = 1200.0
-    C_D = 0.8
-    k_wave = 500.0
+    k1 = 250.0
+    k2 = 80.0
+    A_proj = 1000.0
+    C_D = 0.75
+    k_wave = 450.0
     eta_prop = 0.7
 
     R_calm = k1 * speed ** 2 + k2 * speed ** 3
