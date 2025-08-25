@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 import math
 
-from ..energy.vessel_energy_system import VesselEnergySystem
+from ..energy import (
+    VesselEnergySystem,
+    aux_power,
+    hotel_power,
+    propulsion_power,
+)
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -32,10 +37,32 @@ def feasible_speed_profile(
         lat1, lon1 = path_ll[i - 1]
         lat2, lon2 = path_ll[i]
         dist_nm = haversine_km(lat1, lon1, lat2, lon2) * 0.539957
-        step = ves.step(environment=env_const, target_speed=target_speed_knots, timestep_seconds=dt_s)
-        v_ach = step["achieved_speed_knots"]
+
+        # Estimate engine loads needed to meet power demand at target speed
+        P_prop = propulsion_power(env_const, target_speed_knots)
+        P_hotel = hotel_power(env_const)
+        P_aux = aux_power(env_const, P_prop)
+        demand_w = P_prop + P_hotel + P_aux
+        loads = []
+        per_engine = demand_w / max(1, len(ves.engines))
+        for eng in ves.engines:
+            load_pct = per_engine / (eng.max_power * 1000.0) * 100.0
+            load_pct = max(eng.min_load, min(eng.max_load, load_pct))
+            loads.append(load_pct)
+
+        step = ves.step(
+            controller_action={
+                "engine_loads": loads,
+                "battery_power": 0.0,
+                "target_speed": target_speed_knots,
+            },
+            environment=env_const,
+            timestep_hours=dt_s / 3600.0,
+        )
+        v_ach = float(step.get("actual_speed", 0.0))
         time_s = (dist_nm / max(1e-6, v_ach)) * 3600.0
-        fuel_kg = step.get("fuel_consumed_kg", 0.0) * (time_s / dt_s)
+        fuel_g = float(sum(step.get("fuel_used_g", [])))
+        fuel_kg = fuel_g / 1000.0 * (time_s / dt_s)
         total_time_s += time_s
         total_fuel_kg += fuel_kg
         out.append(

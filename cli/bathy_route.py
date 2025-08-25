@@ -13,8 +13,8 @@ from my_vessel.bathy.fetch import (
 from my_vessel.bathy.grid import oriented_array_and_bounds, downsample
 from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
-from my_vessel.energy.vessel_energy_system import VesselEnergySystem
-from my_vessel.engine_loader import load_engines_from_yaml
+from my_vessel.energy import VesselEnergySystem
+from engine_loader import load_engines_from_yaml
 
 
 def main() -> None:
