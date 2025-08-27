@@ -3,13 +3,28 @@ from __future__ import annotations
 from typing import Tuple
 
 import numpy as np
+from rasterio.enums import Resampling
 from scipy.ndimage import binary_dilation
 
 from ..config import MAX_PIXELS
 
 
-def oriented_array_and_bounds(src) -> tuple[np.ndarray, Tuple[float, float, float, float]]:
-    a = src.read(1).astype("float32")
+def oriented_array_and_bounds(src, downsample: int = 1) -> tuple[np.ndarray, Tuple[float, float, float, float]]:
+    """Read band 1 with optional decimation. Returns (array, (S, W, N, E))."""
+    if downsample < 1:
+        downsample = 1
+
+    if downsample == 1:
+        a = src.read(1).astype("float32")
+    else:
+        out_h = max(1, src.height // downsample)
+        out_w = max(1, src.width // downsample)
+        a = src.read(
+            1,
+            out_shape=(out_h, out_w),
+            resampling=Resampling.average,
+        ).astype("float32")
+
     nodata = src.nodata
     if nodata is not None:
         a = np.where(a == nodata, np.nan, a)
@@ -20,12 +35,6 @@ def oriented_array_and_bounds(src) -> tuple[np.ndarray, Tuple[float, float, floa
     if src.transform.a < 0:  # col increases leftward -> flip horizontally
         a = np.fliplr(a)
 
-    # Require geographic coordinates
-    if src.crs and "4326" not in str(src.crs):
-        raise ValueError(
-            f"Unsupported CRS for bathy raster: {src.crs}. Expected EPSG:4326 (lat/lon)."
-        )
-
     south, west, north, east = (
         src.bounds.bottom,
         src.bounds.left,
@@ -33,8 +42,18 @@ def oriented_array_and_bounds(src) -> tuple[np.ndarray, Tuple[float, float, floa
         src.bounds.right,
     )
 
+    # Size guard after decimation
     if a.size > MAX_PIXELS:
-        raise ValueError(f"ROI too large ({a.shape}), reduce bbox or downsample.")
+        raise ValueError(
+            f"ROI too large even after downsample (shape={a.shape}). Increase --downsample or shrink --bbox."
+        )
+
+    # Require geographic coordinates
+    if src.crs and "4326" not in str(src.crs):
+        raise ValueError(
+            f"Unsupported CRS for bathy raster: {src.crs}. Expected EPSG:4326 (lat/lon)."
+        )
+
     return a, (south, west, north, east)
 
 

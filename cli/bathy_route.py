@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import folium
 
 from my_vessel.bathy.overlay import make_overlay_data_url
-from my_vessel.bathy.grid import oriented_array_and_bounds, downsample, latlon_to_rc
+from my_vessel.bathy.grid import oriented_array_and_bounds, latlon_to_rc
 from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
 from my_vessel.environment.env_sources import sample_env_along_route
@@ -79,9 +79,7 @@ def main() -> None:
         tif = fetch_geotiff_bytes(BBox(*args.bbox), dem_type=args.dem_type)
         src = read_raster_from_bytes(tif)
 
-    arr, bounds = oriented_array_and_bounds(src)
-    if args.downsample > 1:
-        arr = downsample(arr, args.downsample)
+    arr, bounds = oriented_array_and_bounds(src, downsample=args.downsample)
 
     min_depth = args.draft + args.ukc
     grid, path_rc, path_ll = plan_route(
