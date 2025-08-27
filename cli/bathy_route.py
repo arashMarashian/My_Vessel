@@ -1,4 +1,5 @@
 import argparse, json, csv, os
+from pathlib import Path
 import matplotlib.pyplot as plt
 import folium
 
@@ -30,6 +31,8 @@ def _save_plot(x, y, title, xlabel, ylabel, out_png):
 
 
 def main() -> None:
+    default_engine_yaml = Path(__file__).resolve().parents[1] / "data" / "engine_data.yaml"
+
     p = argparse.ArgumentParser(description="Bathymetry-aware routing & speed profile")
     p.add_argument("--bbox", type=float, nargs=4, metavar=("S", "W", "N", "E"))
     p.add_argument("--local-tif", type=str, help="Path to local GeoTIFF (alternative to remote fetch)")
@@ -48,7 +51,12 @@ def main() -> None:
     p.add_argument("--bathy-vmin", type=float, default=None)
     p.add_argument("--bathy-vmax", type=float, default=None)
     # energy / env options
-    p.add_argument("--engine-yaml", type=str, default="data/engine_data.yaml")
+    p.add_argument(
+        "--engine-yaml",
+        type=str,
+        default=str(default_engine_yaml),
+        help="Path to engine YAML file (default: repo_root/data/engine_data.yaml)",
+    )
     p.add_argument("--target-speed-kn", type=float, default=12.0)
     p.add_argument("--dt-s", type=int, default=60)
     p.add_argument("--wind-speed", type=float, default=0.0)
