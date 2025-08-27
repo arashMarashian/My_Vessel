@@ -4,6 +4,11 @@ import math, datetime as dt
 import requests
 
 
+def _is_archive_date(when: dt.datetime, margin_days: int = 10) -> bool:
+    today = dt.datetime.utcnow().date()
+    return when.date() < (today - dt.timedelta(days=margin_days)) or when.date() > (today + dt.timedelta(days=16))
+
+
 def bearing_deg(lat1, lon1, lat2, lon2) -> float:
     # initial course from point1 to point2
     to_rad = math.radians
@@ -40,37 +45,63 @@ def estimate_times(path_ll: List[Tuple[float, float]], target_speed_kn: float, d
         times.append(times[-1] + dt.timedelta(hours=dt_h))
     return times
 
-def openmeteo_marine(lat: float, lon: float, when: dt.datetime) -> Dict[str, float]:
-    """
-    Fetch hourly marine variables from Open-Meteo for the given point/time.
-    Returns dict with wind_speed (m/s), wind_dir (deg), wave_height (m).
-    """
+def _marine_wave_height(lat: float, lon: float, when: dt.datetime) -> float:
     base = "https://marine-api.open-meteo.com/v1/marine"
+    if _is_archive_date(when):
+        base = "https://archive-api.open-meteo.com/v1/marine"
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": "wave_height,wind_speed_10m,wind_direction_10m",
+        "hourly": "wave_height",
         "start_date": when.date().isoformat(),
         "end_date": when.date().isoformat(),
         "timezone": "UTC",
     }
-    r = requests.get(base, params=params, timeout=15)
+    r = requests.get(base, params=params, timeout=20)
+    r.raise_for_status()
+    js = r.json()
+    times = js["hourly"]["time"]
+    wh = js["hourly"]["wave_height"]
+    key = when.replace(minute=0, second=0, microsecond=0).isoformat(timespec="hours")
+    idx = times.index(key) if key in times else min(range(len(times)), key=lambda i: abs((dt.datetime.fromisoformat(times[i]) - when).total_seconds()))
+    return float(wh[idx])
+
+
+def _weather_wind(lat: float, lon: float, when: dt.datetime) -> Tuple[float, float]:
+    base = "https://api.open-meteo.com/v1/forecast"
+    hourly = "wind_speed_10m,wind_direction_10m"
+    if _is_archive_date(when):
+        base = "https://archive-api.open-meteo.com/v1/era5"
+        hourly = "wind_speed_10m,wind_direction_10m"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": hourly,
+        "start_date": when.date().isoformat(),
+        "end_date": when.date().isoformat(),
+        "timezone": "UTC",
+    }
+    r = requests.get(base, params=params, timeout=20)
     r.raise_for_status()
     js = r.json()
     times = js["hourly"]["time"]
     ws = js["hourly"]["wind_speed_10m"]
     wd = js["hourly"]["wind_direction_10m"]
-    wh = js["hourly"]["wave_height"]
     key = when.replace(minute=0, second=0, microsecond=0).isoformat(timespec="hours")
-    if key in times:
-        i = times.index(key)
-    else:
-        diffs = []
-        for t in times:
-            hh = dt.datetime.fromisoformat(t)
-            diffs.append(abs((hh - when).total_seconds()))
-        i = diffs.index(min(diffs))
-    return {"wind_speed": float(ws[i]), "wind_dir": float(wd[i]), "wave_height": float(wh[i])}
+    idx = times.index(key) if key in times else min(range(len(times)), key=lambda i: abs((dt.datetime.fromisoformat(times[i]) - when).total_seconds()))
+    return float(ws[idx]), float(wd[idx])
+
+
+def openmeteo_env(lat: float, lon: float, when: dt.datetime) -> Dict[str, float]:
+    try:
+        wave_h = _marine_wave_height(lat, lon, when)
+    except Exception:
+        wave_h = 0.0
+    try:
+        wind_speed, wind_dir = _weather_wind(lat, lon, when)
+    except Exception:
+        wind_speed, wind_dir = 0.0, 0.0
+    return {"wind_speed": wind_speed, "wind_dir": wind_dir, "wave_height": wave_h}
 
 def sample_env_along_route(
     path_ll: List[Tuple[float, float]],
@@ -87,7 +118,7 @@ def sample_env_along_route(
     out = []
     for i, (latlon, t) in enumerate(zip(path_ll, times)):
         lat, lon = latlon
-        met = openmeteo_marine(lat, lon, t)
+        met = openmeteo_env(lat, lon, t)
         if i < len(path_ll) - 1:
             lat2, lon2 = path_ll[i + 1]
         else:
