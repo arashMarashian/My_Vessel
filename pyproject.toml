@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-vessel"
+version = "0.1.0"
+description = "Utilities for vessel routing"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+bathy-route = "cli.bathy_route:main"
+
+[tool.setuptools.packages.find]
+include = ["cli", "my_vessel", "energy", "environment", "path_planner", "controllers", "models", "utils"]
