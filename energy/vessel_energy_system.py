@@ -127,17 +127,30 @@ class VesselEnergySystem:
         P_aux = aux_power(environment, P_prop)
         demand = P_prop + P_hotel + P_aux + (actual_batt_power if actual_batt_power > 0 else 0.0)
 
+        # If supply is insufficient at target speed, find the maximum achievable speed
         actual_speed = target_speed
-        iter_count = 0
-        while supply < demand and actual_speed > 0 and iter_count < 100:
-            actual_speed = max(0.0, actual_speed - 0.5)
+        if supply < demand:
+            lo, hi = 0.0, target_speed
+            for _ in range(40):
+                mid = 0.5 * (lo + hi)
+                P_prop_m = propulsion_power(environment, mid)
+                P_aux_m = aux_power(environment, P_prop_m)
+                demand_m = P_prop_m + P_hotel + P_aux_m + (actual_batt_power if actual_batt_power > 0 else 0.0)
+                if demand_m <= supply:
+                    lo = mid
+                else:
+                    hi = mid
+            actual_speed = lo
+            # Final check
             P_prop = propulsion_power(environment, actual_speed)
             P_aux = aux_power(environment, P_prop)
             demand = P_prop + P_hotel + P_aux + (actual_batt_power if actual_batt_power > 0 else 0.0)
-            iter_count += 1
-
-        if supply < demand:
-            raise RuntimeError("Insufficient power supply from engines and battery")
+            if supply + 1e-6 < demand:
+                # Even at zero speed we cannot satisfy demand (should not happen with nonnegative hotel)
+                actual_speed = 0.0
+                P_prop = propulsion_power(environment, actual_speed)
+                P_aux = aux_power(environment, P_prop)
+                demand = P_prop + P_hotel + P_aux + (actual_batt_power if actual_batt_power > 0 else 0.0)
 
         self.speed = actual_speed
 

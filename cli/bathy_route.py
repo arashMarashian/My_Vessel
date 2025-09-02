@@ -144,11 +144,11 @@ def main() -> None:
     ves = VesselEnergySystem(engines, battery=Battery(capacity_kwh=0*1e5))
 
     class _VESAdapter:
-        def __init__(self, ves):
+        def __init__(self, ves, reserve_n_engines: int = 1):
             self.ves = ves
+            self.reserve_n_engines = reserve_n_engines
 
         def step(self, environment, target_speed, timestep_seconds):
-            # Compute demand-based engine loads (simple proportional sharing)
             # Estimate propulsion and hotel/aux in kW for load allocation
             P_prop_w = propulsion_power(environment, target_speed)
             hotel_kw = hotel_power(environment) / 1000.0
@@ -156,13 +156,54 @@ def main() -> None:
             total_prop_kw = P_prop_w / 1000.0
             total_power_kw = total_prop_kw + hotel_kw + aux_kw
 
-            sum_max_kw = sum(e.max_power for e in self.ves.engines)
-            share = 0.0 if sum_max_kw <= 0 else min(1.0, max(0.0, total_power_kw / sum_max_kw))
-            # Target uniform load across engines within allowed band
-            target_loads = [max(eng.min_load, min(eng.max_load, share * 100.0)) for eng in self.ves.engines]
+            # Staged dispatch: prefer running fewer engines, leave some as reserve
+            n = len(self.ves.engines)
+            idx_sorted = sorted(range(n), key=lambda i: self.ves.engines[i].max_power, reverse=True)
+            reserve = set(idx_sorted[-max(0, min(self.reserve_n_engines, n)) :])
+            pool = [i for i in idx_sorted if i not in reserve]
+
+            def try_k(indices):
+                sum_max = sum(self.ves.engines[i].max_power for i in indices)
+                share = 0.0 if sum_max <= 0 else total_power_kw / sum_max
+                load_pct = share * 100.0
+                mins = [self.ves.engines[i].min_load for i in indices]
+                maxs = [self.ves.engines[i].max_load for i in indices]
+                ok_upper = load_pct <= min(maxs)
+                ok_lower = load_pct >= max(mins)
+                return ok_lower and ok_upper, load_pct
+
+            active = []
+            chosen_load_pct = None
+            for k in range(1, max(1, len(pool)) + 1):
+                cand = pool[:k]
+                ok, load_pct = try_k(cand)
+                if ok:
+                    active = cand
+                    chosen_load_pct = load_pct
+                    break
+            if not active:
+                for k in range(1, n + 1):
+                    cand = idx_sorted[:k]
+                    ok, load_pct = try_k(cand)
+                    if ok:
+                        active = cand
+                        chosen_load_pct = load_pct
+                        break
+            if not active:
+                active = idx_sorted
+                chosen_load_pct = max(e.min_load for e in self.ves.engines)
+
+            target_loads = [0.0] * n
+            if chosen_load_pct is not None:
+                for i in active:
+                    eng = self.ves.engines[i]
+                    target_loads[i] = max(eng.min_load, min(eng.max_load, chosen_load_pct))
+            else:
+                i0 = idx_sorted[0]
+                target_loads[i0] = self.ves.engines[i0].min_load
+
             engine_kw_targets = [ld / 100.0 * eng.max_power for ld, eng in zip(target_loads, self.ves.engines)]
             total_engine_kw = sum(engine_kw_targets)
-            # Battery policy: charge if engines produce surplus, discharge if deficit
             battery_req_w = (total_engine_kw - total_power_kw) * 1000.0
 
             res = self.ves.step(
@@ -179,7 +220,8 @@ def main() -> None:
             for eng, load, fuel_g in zip(self.ves.engines, target_loads, res.get("fuel_used_g", [])):
                 kw = load / 100.0 * eng.max_power
                 engine_kw.append(kw)
-                sfoc = eng.get_fuel_consumption(load)
+                # SFOC is 0 when engine is off
+                sfoc = 0.0 if load <= 0.0 or kw <= 0.0 else eng.get_fuel_consumption(load)
                 engine_info.append({"power_kw": kw, "sfoc_g_per_kwh": sfoc})
             # Pull battery info from energy system result
             battery_power_kw = float(res.get("battery_power_w", 0.0)) / 1000.0

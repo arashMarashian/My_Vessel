@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import io
 import json
+import hashlib
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 
@@ -36,8 +37,35 @@ st.set_page_config(page_title="Bathymetry Route Planner", layout="wide")
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
 
+# --- Simple Login Gate ---
+ADMIN_USER = "admin"
+ADMIN_PASS_HASH = hashlib.sha256("ArashReza".encode("utf-8")).hexdigest()
 
-def _adapter_for_ves(ves: VesselEnergySystem):
+if "auth_ok" not in st.session_state:
+    st.session_state["auth_ok"] = False
+
+def _login_ui():
+    st.title("Login")
+    st.caption("Please sign in to access the app")
+    with st.form("login_form"):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        submit = st.form_submit_button("Login")
+    if submit:
+        ok = (u == ADMIN_USER) and (hashlib.sha256(p.encode("utf-8")).hexdigest() == ADMIN_PASS_HASH)
+        if ok:
+            st.session_state["auth_ok"] = True
+            st.success("Logged in successfully")
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+if not st.session_state.get("auth_ok"):
+    _login_ui()
+    st.stop()
+
+
+def _adapter_for_ves(ves: VesselEnergySystem, reserve_n_engines: int = 1):
     class _Adapter:
         def __init__(self, ves):
             self.ves = ves
@@ -49,9 +77,58 @@ def _adapter_for_ves(ves: VesselEnergySystem):
             total_prop_kw = P_prop_w / 1000.0
             total_power_kw = total_prop_kw + hotel_kw + aux_kw
 
-            sum_max_kw = sum(e.max_power for e in self.ves.engines)
-            share = 0.0 if sum_max_kw <= 0 else min(1.0, max(0.0, total_power_kw / sum_max_kw))
-            target_loads = [max(eng.min_load, min(eng.max_load, share * 100.0)) for eng in self.ves.engines]
+            # Staged dispatch: run the minimum number of engines (reserving some) and share load uniformly
+            n = len(self.ves.engines)
+            idx_sorted = sorted(range(n), key=lambda i: self.ves.engines[i].max_power, reverse=True)
+            reserve = set(idx_sorted[-max(0, min(reserve_n_engines, n)) :])
+            pool = [i for i in idx_sorted if i not in reserve]
+
+            def try_k(indices):
+                sum_max = sum(self.ves.engines[i].max_power for i in indices)
+                share = 0.0 if sum_max <= 0 else total_power_kw / sum_max
+                load_pct = share * 100.0
+                # Check if within bounds for all selected engines
+                mins = [self.ves.engines[i].min_load for i in indices]
+                maxs = [self.ves.engines[i].max_load for i in indices]
+                ok_upper = load_pct <= min(maxs)
+                ok_lower = load_pct >= max(mins)
+                return ok_lower and ok_upper, max(mins), min(maxs), load_pct
+
+            active = []
+            chosen_load_pct = None
+            # Prefer not to use reserved engines
+            for k in range(1, max(1, len(pool)) + 1):
+                cand = pool[:k]
+                ok, lo, hi, load_pct = try_k(cand)
+                if ok:
+                    active = cand
+                    chosen_load_pct = load_pct
+                    break
+            # If still not ok, include reserved engines progressively
+            if not active:
+                all_sorted = idx_sorted
+                for k in range(1, n + 1):
+                    cand = all_sorted[:k]
+                    ok, lo, hi, load_pct = try_k(cand)
+                    if ok:
+                        active = cand
+                        chosen_load_pct = load_pct
+                        break
+            # Fallback: if nothing meets bounds even with all engines, use all engines at max load
+            if not active:
+                active = idx_sorted
+                chosen_load_pct = max(e.min_load for e in self.ves.engines)
+
+            target_loads = [0.0] * n
+            if chosen_load_pct is not None:
+                for i in active:
+                    eng = self.ves.engines[i]
+                    target_loads[i] = max(eng.min_load, min(eng.max_load, chosen_load_pct))
+            else:
+                # Very low demand: use a single largest engine at min load and charge battery
+                i0 = idx_sorted[0]
+                target_loads[i0] = self.ves.engines[i0].min_load
+
             engine_kw_targets = [ld / 100.0 * eng.max_power for ld, eng in zip(target_loads, self.ves.engines)]
             total_engine_kw = sum(engine_kw_targets)
             battery_req_w = (total_engine_kw - total_power_kw) * 1000.0
@@ -68,7 +145,11 @@ def _adapter_for_ves(ves: VesselEnergySystem):
             engine_info = []
             for eng, load in zip(self.ves.engines, target_loads):
                 kw = load / 100.0 * eng.max_power
-                sfoc = eng.get_fuel_consumption(load)
+                # When engine is off (load==0 or power==0), report SFOC as 0
+                if load <= 0.0 or kw <= 0.0:
+                    sfoc = 0.0
+                else:
+                    sfoc = eng.get_fuel_consumption(load)
                 engine_info.append({"power_kw": kw, "sfoc_g_per_kwh": sfoc})
             battery_power_kw = float(res.get("battery_power_w", 0.0)) / 1000.0
             battery_soc_kwh = float(res.get("battery_soc_kwh", 0.0))
@@ -331,6 +412,9 @@ st.title("Bathymetry Route Planner")
 st.caption("Draw a bounding box and start/goal on the map, set parameters, and run.")
 
 with st.sidebar:
+    if st.button("Logout"):
+        st.session_state["auth_ok"] = False
+        st.rerun()
     st.header("Inputs")
     api_key = st.text_input("OpenTopography API Key", value=os.getenv("OPENTOPO_API_KEY", ""), type="password")
     dem_type = st.text_input("DEM Type", value="SRTM15Plus")
