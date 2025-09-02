@@ -149,6 +149,30 @@ Outputs are written under `Results/bathy_route/` by default, including:
 - `hel_to_rey.csv`: per-segment time, speed, power, SFOC, fuel usage, and environment.
 - `hel_to_rey.png`: static route plot; plus additional time-series PNGs.
 
+## Streamlit App
+
+An interactive UI is available to draw the bounding box and start/goal on a map, set numerical parameters (draft, UKC, target speed, etc.), run the routing pipeline, and view interactive plots.
+
+Run the app:
+
+```bash
+conda activate myvessel311
+pip install -r requirements.txt  # ensure Streamlit deps are installed
+streamlit run app/streamlit_app.py
+```
+
+What you can do in the UI:
+
+- Draw a rectangle on the map to set `--bbox` (S W N E)
+- Place two markers and select which is start and goal
+- Set numeric inputs: `draft`, `ukc`, `downsample`, `dilate-cells`, `target-speed-kn`, `dt-s`
+- Choose environment source: `openmeteo` (requires `depart-iso`) or `constant`
+- Provide `OPENTOPO_API_KEY` (in the sidebar) or via environment variable
+- Always-shown plots: cumulative fuel, speed profile, total power profile, and the route on a map
+- Extra plots: select from a list (engine power/SFOC, battery SOC/power, wind, waves) and render interactively
+
+Outputs are also written to `Results/bathy_route/` with the chosen `out-prefix` for later analysis.
+
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
 

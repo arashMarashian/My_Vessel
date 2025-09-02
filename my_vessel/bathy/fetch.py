@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import os
 import requests
 import rasterio
 
-from ..config import OPENTOPO_API_KEY, DEFAULT_DEM_TYPE
+from ..config import DEFAULT_DEM_TYPE
 from utils.paths import ensure_results_subdir
 
 OPENTOPO_URL = "https://portal.opentopography.org/API/globaldem"
@@ -28,8 +29,16 @@ def _cache_path(bbox: BBox, dem_type: str) -> Path:
     return cache_dir / safe
 
 
-def fetch_geotiff_bytes(bbox: BBox, dem_type: str = DEFAULT_DEM_TYPE, timeout: int = 60, use_cache: bool = True) -> bytes:
-    if not OPENTOPO_API_KEY:
+def fetch_geotiff_bytes(
+    bbox: BBox,
+    dem_type: str = DEFAULT_DEM_TYPE,
+    timeout: int = 60,
+    use_cache: bool = True,
+    api_key: Optional[str] = None,
+) -> bytes:
+    # Read API key at call-time so apps can set it dynamically (e.g., Streamlit sidebar)
+    api_key = api_key or os.getenv("OPENTOPO_API_KEY")
+    if not api_key:
         raise RuntimeError("OPENTOPO_API_KEY is not set; use local GeoTIFF or set the env var.")
     if use_cache:
         cp = _cache_path(bbox, dem_type)
@@ -42,7 +51,7 @@ def fetch_geotiff_bytes(bbox: BBox, dem_type: str = DEFAULT_DEM_TYPE, timeout: i
         "west": bbox.west,
         "east": bbox.east,
         "outputFormat": "GTiff",
-        "API_Key": OPENTOPO_API_KEY,
+        "API_Key": api_key,
     }
     r = requests.get(OPENTOPO_URL, params=params, timeout=timeout)
     r.raise_for_status()
