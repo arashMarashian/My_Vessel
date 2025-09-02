@@ -4,7 +4,7 @@ from typing import Dict, Callable, List
 import os
 
 import yaml
-from scipy.interpolate import interp1d
+import numpy as np
 
 
 class Engine:
@@ -52,8 +52,18 @@ class Engine:
 
 
 def _interp_curve(points: Dict[str, float]) -> Callable[[float], float]:
-    loads, values = zip(*sorted(((float(k), v) for k, v in points.items()), key=lambda p: p[0]))
-    return interp1d(loads, values, bounds_error=False, fill_value="extrapolate")
+    # Simple 1D linear interpolation using NumPy. Assumes monotonic loads.
+    xs, ys = zip(*sorted(((float(k), float(v)) for k, v in points.items()), key=lambda p: p[0]))
+    x = np.asarray(xs, dtype=float)
+    y = np.asarray(ys, dtype=float)
+
+    def f(load_percent: float) -> float:
+        lp = float(load_percent)
+        # Clamp to [x.min(), x.max()] — curves cover 0..100 so extrapolation not required
+        lp_clamped = min(max(lp, x[0]), x[-1])
+        return float(np.interp(lp_clamped, x, y))
+
+    return f
 
 
 def load_engines_from_yaml(path: str = "data/engine_data.yaml") -> List[Engine]:

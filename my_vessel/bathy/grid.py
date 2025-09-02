@@ -4,7 +4,8 @@ from typing import Tuple
 
 import numpy as np
 from rasterio.enums import Resampling
-from scipy.ndimage import binary_dilation
+import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 
 from ..config import MAX_PIXELS
 
@@ -66,12 +67,22 @@ def downsample(arr: np.ndarray, factor: int) -> np.ndarray:
     return np.nanmean(block, axis=(1, 3)).astype("float32")
 
 
+def _binary_dilation_np(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
+    """Binary dilation using NumPy only (3x3 square structuring element)."""
+    out = mask.astype(bool)
+    for _ in range(max(1, int(iterations))):
+        ext = np.pad(out, 1, mode="constant", constant_values=False)
+        win = sliding_window_view(ext, (3, 3))
+        out = win.max(axis=(-1, -2)).astype(bool)
+    return out
+
+
 def bathy_to_occupancy(arr_bathy: np.ndarray, min_depth_m: float, dilate_cells: int = 0) -> np.ndarray:
     land = arr_bathy >= 0
     shallow = (arr_bathy > -float(min_depth_m)) & (arr_bathy <= 0)
     obstacles = np.where(np.isnan(arr_bathy), True, (land | shallow))
     if dilate_cells > 0:
-        obstacles = binary_dilation(obstacles, iterations=dilate_cells)
+        obstacles = _binary_dilation_np(obstacles, iterations=dilate_cells)
     return obstacles.astype(np.uint8)
 
 
