@@ -63,6 +63,9 @@ def feasible_speed_profile(
         total_prop_kw = float(step.get("total_propulsion_power_kw", sum(per_engine_kw)))
         hotel_kw = float(step.get("hotel_kw", hotel_power_kw))
         aux_kw = float(step.get("aux_kw", aux_power_kw))
+        total_power_kw = float(step.get("total_power_kw", total_prop_kw + hotel_kw + aux_kw))
+        battery_power_kw = float(step.get("battery_power_kw", 0.0))
+        battery_soc_kwh = float(step.get("battery_soc_kwh", 0.0))
 
         t_s += seg_time_s
         totals["time_s"] += seg_time_s
@@ -82,6 +85,9 @@ def feasible_speed_profile(
             "total_prop_kw": total_prop_kw,
             "hotel_kw": hotel_kw,
             "aux_kw": aux_kw,
+            "total_power_kw": total_power_kw,
+            "battery_power_kw": battery_power_kw,
+            "battery_soc_kwh": battery_soc_kwh,
             "per_engine_kw": per_engine_kw,
             "per_engine_sfoc_g_per_kwh": per_engine_sfoc,
             "env_wind_speed": float(env.get("wind_speed", 0.0)),
@@ -89,4 +95,3 @@ def feasible_speed_profile(
             "env_wave_height": float(env.get("wave_height", 0.0)),
         })
     return {"segments": rows, "totals": totals}
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Tuple, Optional
 import math, datetime as dt
+from functools import lru_cache
 import requests
 
 
@@ -44,6 +45,9 @@ def estimate_times(path_ll: List[Tuple[float, float]], target_speed_kn: float, d
         dt_h = nm / max(1e-6, target_speed_kn)
         times.append(times[-1] + dt.timedelta(hours=dt_h))
     return times
+
+_ENV_CACHE: Dict[Tuple[float, float, str, bool], Dict[str, float]] = {}
+
 
 def _marine_wave_height(lat: float, lon: float, when: dt.datetime) -> float:
     base = "https://marine-api.open-meteo.com/v1/marine"
@@ -93,20 +97,34 @@ def _weather_wind(lat: float, lon: float, when: dt.datetime) -> Tuple[float, flo
 
 
 def openmeteo_env(lat: float, lon: float, when: dt.datetime) -> Dict[str, float]:
+    """Fetch environment with simple memoization on quantized lat/lon and hour.
+
+    Quantizes lat/lon to 0.1 deg to reduce calls along dense paths.
+    """
+    hour_key = when.replace(minute=0, second=0, microsecond=0).isoformat(timespec="hours")
+    qlat = round(lat, 1)
+    qlon = round(lon, 1)
+    key = (qlat, qlon, hour_key, _is_archive_date(when))
+    cached = _ENV_CACHE.get(key)
+    if cached is not None:
+        return cached
     try:
-        wave_h = _marine_wave_height(lat, lon, when)
+        wave_h = _marine_wave_height(qlat, qlon, when)
     except Exception:
         wave_h = 0.0
     try:
-        wind_speed, wind_dir = _weather_wind(lat, lon, when)
+        wind_speed, wind_dir = _weather_wind(qlat, qlon, when)
     except Exception:
         wind_speed, wind_dir = 0.0, 0.0
-    return {"wind_speed": wind_speed, "wind_dir": wind_dir, "wave_height": wave_h}
+    out = {"wind_speed": wind_speed, "wind_dir": wind_dir, "wave_height": wave_h}
+    _ENV_CACHE[key] = out
+    return out
 
 def sample_env_along_route(
     path_ll: List[Tuple[float, float]],
     depart_iso: str,
     target_speed_kn: float,
+    sample_stride: int = 1,
 ) -> List[Dict[str, float]]:
     """
     Return list of per-waypoint dicts: wind_speed (m/s), wind_dir (deg), wind_angle_diff (deg), wave_height (m)
@@ -116,9 +134,15 @@ def sample_env_along_route(
     depart = dt.datetime.fromisoformat(depart_iso.replace("Z", "+00:00")).astimezone(dt.timezone.utc).replace(tzinfo=None)
     times = estimate_times(path_ll, target_speed_kn, depart)
     out = []
+    last = None
+    sample_stride = max(1, int(sample_stride))
     for i, (latlon, t) in enumerate(zip(path_ll, times)):
         lat, lon = latlon
-        met = openmeteo_env(lat, lon, t)
+        if i % sample_stride == 0 or last is None or i == len(path_ll) - 1:
+            met = openmeteo_env(lat, lon, t)
+            last = met
+        else:
+            met = last
         if i < len(path_ll) - 1:
             lat2, lon2 = path_ll[i + 1]
         else:

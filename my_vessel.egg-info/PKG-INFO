@@ -1,3 +1,10 @@
+Metadata-Version: 2.4
+Name: my-vessel
+Version: 0.1.0
+Summary: Utilities for vessel routing
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
 # My_Vessel
 
 My_Vessel is a modular research and simulation repository for developing,
@@ -76,17 +83,17 @@ profile:
 bathy-route --bbox 60.1 20.1 60.5 20.7 --draft 6.5 --ukc 1.0 \
   --start 60.45 20.15 --goal 60.15 20.65 --target-speed-kn 12 \
   --dilate-cells 1 --downsample 2 --out-prefix demo \
-  --map-html demo_map.html --verbose
+  --map-html demo.html --verbose
 ```
 
-By default, the command writes `demo.geojson`, `demo.csv`, and `demo.png` to
-`Results/bathy_route/` and, if `--map-html` is provided, an interactive Leaflet map
-(`demo_map.html`). Additional time-series plots such as fuel usage and speed vs
-time are also saved in the same directory.
+The command writes `demo.geojson`, `demo.csv`, and `demo.png` to the current
+directory and, if `--map-html` is provided, an interactive Leaflet map overlaying
+the bathymetry and planned route.
 
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
 
 ## Energy Architecture For Cruise Vessel Simulation
 ![output (2)](https://github.com/user-attachments/assets/6ba6b003-a737-4548-bcce-5edae61bc879)
+
 

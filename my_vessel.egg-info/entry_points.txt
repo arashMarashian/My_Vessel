@@ -1,0 +1,2 @@
+[console_scripts]
+bathy-route = cli.bathy_route:main
