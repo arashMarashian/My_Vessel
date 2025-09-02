@@ -12,6 +12,8 @@ if PROJECT_ROOT not in sys.path:
 from path_planner import AStarPlanner
 from path_planner.utils import plot_map, plot_path, densify_path, smooth_path
 from environment.map_utils import load_environment_data, extract_environment_along_path
+from environment.map_generator import generate_environment_grid
+from utils.paths import ensure_results_subdir
 
 
 def main():
@@ -29,7 +31,12 @@ def main():
     smoothed = smooth_path(dense, smoothness=0.25)
 
     # Load environmental data and sample it along the discrete path
-    env = load_environment_data()
+    # Use a dedicated Results subfolder for this example
+    env_dir = ensure_results_subdir("a_star_example")
+    env_path = os.path.join(str(env_dir), "environment_fields.npz")
+    if not os.path.exists(env_path):
+        np.savez(env_path, **generate_environment_grid(size=(50, 50)))
+    env = load_environment_data(env_path)
     path_xy = [(c, r) for r, c in path]
     env_on_path = extract_environment_along_path(env, path_xy)
 

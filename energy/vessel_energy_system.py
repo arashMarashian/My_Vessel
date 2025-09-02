@@ -147,6 +147,7 @@ class VesselEnergySystem:
             "battery_soc_kwh": self.battery.soc_kwh,
             "power_demand_w": demand,
             "power_supply_w": supply,
+            "battery_power_w": actual_batt_power,
         }
 
 
