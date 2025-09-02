@@ -173,6 +173,20 @@ What you can do in the UI:
 
 Outputs are also written to `Results/bathy_route/` with the chosen `out-prefix` for later analysis.
 
+### Deploying to Streamlit Community Cloud
+
+If you deploy this repo to Streamlit Cloud and see build failures for `scipy` or `rasterio` on Python 3.13, pin the Python runtime to 3.11. This repository includes `runtime.txt` with:
+
+```
+3.11
+```
+
+Streamlit Cloud will honor this and use Python 3.11, which has prebuilt wheels for `scipy==1.13.1` and `rasterio==1.3.10`, avoiding gfortran/GDAL source builds. If you still see errors:
+
+- Ensure `requirements.txt` is used (no conflicting `pyproject.toml`).
+- Restart the app from the Streamlit Cloud dashboard after pushing changes.
+- Optionally, switch to a smaller bbox or upload a local GeoTIFF in the app to validate the pipeline independent of remote DEM fetch.
+
 ## Project Workflow
 ![output (1)](https://github.com/user-attachments/assets/887d7af9-b24a-4adf-8b18-df29376f93bf)
 
