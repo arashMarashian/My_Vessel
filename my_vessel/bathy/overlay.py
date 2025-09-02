@@ -29,11 +29,13 @@ def make_overlay_data_url(arr: np.ndarray, bounds: Tuple[float, float, float, fl
 
     rgba = np.zeros((a.shape[0], a.shape[1], 4), dtype="float32")
     if np.any(water):
-        colored = cmap(norm(a))
-        rgba[...] = colored
-        # alpha only on water inside range
-        inside = water & (a >= vmin) & (a <= vmax)
-        rgba[..., 3] = np.where(inside, opacity, 0.0).astype("float32")
+        # Colorize all water (clip colors to [vmin, vmax]) and keep land/NaN fully transparent
+        colored = cmap(norm(np.where(water, a, np.nan)))
+        rgba[...] = 0.0
+        rgba[water] = colored[water]
+        # Make all water visible with the chosen opacity so there are no "holes" outside percentile range
+        rgba[..., 3] = 0.0
+        rgba[water, 3] = opacity
     # everything else (land or NaN) stays alpha=0
 
     h, w = rgba.shape[:2]
