@@ -1,4 +1,4 @@
-# My_Vessel
+# My_Vessel_1.0.0
 
 My_Vessel is a modular research and simulation repository for developing,
 testing, and analyzing hydrodynamic models and control strategies related to
