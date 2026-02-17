@@ -1,4 +1,3 @@
-from .dispatch_optimizer import DispatchOptimizer
+"""Compatibility shim for opt_control modules."""
 
-__all__ = ["DispatchOptimizer"]
-
+from my_vessel.energy.opt_control import *  # type: ignore  # noqa: F401,F403

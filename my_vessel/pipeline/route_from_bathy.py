@@ -5,7 +5,8 @@ from collections import deque
 from typing import Tuple
 
 from path_planner.a_star_planner import AStarPlanner
-from path_planner.utils import densify_path, smooth_path
+from path_planner.utils import densify_path
+from path_planner.smoothing import shortcut_smooth_path
 
 from my_vessel.bathy.grid import bathy_to_occupancy, latlon_to_rc, rc_to_latlon
 
@@ -105,7 +106,9 @@ def plan_route(
         return grid, [], []
 
     path_dense = densify_path(path_rc, points_per_segment=densify_pts)
-    path_smooth = smooth_path(path_dense, smoothness=smoothness, iterations=iterations)
+    if smoothness > 0:
+        path_smooth = shortcut_smooth_path(path_dense, grid, max_iters=iterations)
+    else:
+        path_smooth = [tuple(p) for p in path_dense]
     path_ll = [rc_to_latlon(r, c, bounds, grid.shape) for (r, c) in path_smooth]
     return grid, path_rc, path_ll
-

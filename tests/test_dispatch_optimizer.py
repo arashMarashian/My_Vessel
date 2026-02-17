@@ -7,7 +7,7 @@ if PROJECT_ROOT not in sys.path:
 
 import yaml
 from engine_loader import load_engines_from_yaml
-from energy.opt_control import DispatchOptimizer
+from my_vessel.energy.opt_control import DispatchOptimizer
 
 
 def test_dispatch_optimizer_build():

@@ -7,7 +7,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from engine_loader import load_engines_from_yaml
-from energy.vessel_energy_system import Battery, VesselEnergySystem
+from my_vessel.energy.vessel_energy_system import Battery, VesselEnergySystem
 
 
 def main() -> None:

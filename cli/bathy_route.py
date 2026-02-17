@@ -10,13 +10,13 @@ from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
 from my_vessel.environment.env_sources import sample_env_along_route
 from my_vessel.bathy.fetch import BBox, fetch_geotiff_bytes, read_raster_from_bytes, read_raster_from_file
-from energy.vessel_energy_system import (
+from my_vessel.energy.vessel_energy_system import (
     VesselEnergySystem,
     Battery,
     hotel_power,
     aux_power,
 )
-from energy.power_model import propulsion_power
+from my_vessel.energy.power_model import propulsion_power
 from engine_loader import load_engines_from_yaml
 
 

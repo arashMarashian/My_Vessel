@@ -8,7 +8,7 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from energy.power_model import propulsion_power
+from my_vessel.energy.power_model import propulsion_power
 
 
 def main() -> None:

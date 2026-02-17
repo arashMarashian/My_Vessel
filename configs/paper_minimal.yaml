@@ -1,0 +1,36 @@
+# Minimal reproducible scenario for paper experiments
+defaults:
+  bathy:
+    bounds: [0.0, 0.0, 6.0, 6.0]
+    min_depth_m: 2.0
+    dilate_cells: 0
+    array:
+      - [-8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
+      - [-8.0,  1.0,  1.0,  1.0,  1.0, -8.0]
+      - [-8.0, -8.0, -8.0, -8.0,  1.0, -8.0]
+      - [-8.0,  1.0,  1.0, -8.0, -8.0, -8.0]
+      - [-8.0, -8.0, -8.0, -8.0,  1.0, -8.0]
+      - [-8.0, -8.0, -8.0, -8.0, -8.0, -8.0]
+  planning:
+    densify_pts: 4
+    smoothness: 0.35
+    iterations: 160
+    snap_radius: 3
+  energy:
+    engine_yaml: data/engine_data.yaml
+    max_engines: 2
+    battery:
+      capacity_kwh: 1500.0
+      soc_kwh: 750.0
+    target_speed_kn: 8.0
+    dt_s: 60
+  environment:
+    mode: constant
+    values:
+      wind_speed: 3.0
+      wind_angle_diff: 25.0
+      wave_height: 0.5
+scenarios:
+  - name: narrow_channel
+    start: [0.5, 0.5]
+    goal: [5.5, 5.5]

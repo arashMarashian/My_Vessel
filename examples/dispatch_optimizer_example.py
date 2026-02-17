@@ -11,8 +11,8 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from engine_loader import load_engines_from_yaml
-from energy.opt_control import DispatchOptimizer
-from energy import propulsion_power, hotel_power, aux_power
+from my_vessel.energy.opt_control import DispatchOptimizer
+from my_vessel.energy import propulsion_power, hotel_power, aux_power
 
 
 def main() -> None:

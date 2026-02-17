@@ -5,3 +5,5 @@ __pycache__/
 pytest_cache/
 Miniconda3-latest-Linux-x86_64.sh
 Results/
+.env
+results/

@@ -58,15 +58,29 @@ python examples/a_star_example.py
 Both approaches create a small occupancy grid and use
 `AStarPlanner` to find a path while visualizing the result.
 
+### Batch experiments
+
+Run the reproducible experiment harness to generate summaries and plots under
+`results/<timestamp>/` (writes `summary.csv`, per-scenario PNGs, and JSON snippets):
+
+```bash
+python -m experiments.run_all --config configs/paper_minimal.yaml
+```
+
+The YAML file describes one or more scenarios that `my_vessel.pipeline.run_scenario`
+consumes (grid → planner → energy evaluation).
+
 ## Bathymetry routing
 
 The repository includes an optional pipeline for planning vessel routes using
 real bathymetry data. To fetch remote DEM tiles you need an
-OpenTopography API key. Create a `.env` file or export the variable in your
-shell:
+OpenTopography API key. Copy `.env.example` to `.env`, add your key, and load it
+before running CLI commands (or export manually):
 
 ```bash
-export OPENTOPO_API_KEY=YOUR_KEY_HERE
+cp .env.example .env  # first time only
+# edit .env and set OPENTOPO_API_KEY=...
+set -a; source .env; set +a  # loads env vars into the current shell
 ```
 
 Example command to download bathymetry, plan a route, and compute a speed
@@ -106,8 +120,8 @@ Below is a ready-to-run example using the built-in CLI module. It activates the 
 
 ```bash
 conda activate myvessel311
+set -a; source .env; set +a  # ensures OPENTOPO_API_KEY is exported
 
-OPENTOPO_API_KEY=23016192f2637c9b8fc6137bcfc852df \
 MPLBACKEND=Agg \
 python -m cli.bathy_route \
   --bbox 52 -1 66 26 \

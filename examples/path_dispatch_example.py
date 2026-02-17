@@ -14,8 +14,8 @@ from path_planner.utils import plot_map, plot_path
 from environment.map_generator import generate_environment_grid
 from environment.map_utils import extract_environment_along_path
 from engine_loader import load_engines_from_yaml
-from energy.opt_control import DispatchOptimizer
-from energy import propulsion_power, hotel_power, aux_power
+from my_vessel.energy.opt_control import DispatchOptimizer
+from my_vessel.energy import propulsion_power, hotel_power, aux_power
 
 
 def heading_degrees(p1, p2):

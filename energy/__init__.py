@@ -1,14 +1,3 @@
-"""Energy system modeling utilities."""
+"""Compatibility layer: re-export everything from ``my_vessel.energy``."""
 
-from .power_model import propulsion_power
-from .vessel_energy_system import Battery, VesselEnergySystem, hotel_power, aux_power
-from .opt_control import DispatchOptimizer
-
-__all__ = [
-    "propulsion_power",
-    "Battery",
-    "VesselEnergySystem",
-    "hotel_power",
-    "aux_power",
-    "DispatchOptimizer",
-]
+from my_vessel.energy import *  # type: ignore  # noqa: F401,F403

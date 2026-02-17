@@ -69,11 +69,13 @@ Both approaches create a small occupancy grid and use
 
 The repository includes an optional pipeline for planning vessel routes using
 real bathymetry data. To fetch remote DEM tiles you need an
-OpenTopography API key. Create a `.env` file or export the variable in your
-shell:
+OpenTopography API key. Copy `.env.example` to `.env`, add your key, and load it
+before running CLI commands (or export manually):
 
 ```bash
-export OPENTOPO_API_KEY=YOUR_KEY_HERE
+cp .env.example .env  # first time only
+# edit .env and set OPENTOPO_API_KEY=...
+set -a; source .env; set +a  # loads env vars into the current shell
 ```
 
 Example command to download bathymetry, plan a route, and compute a speed
@@ -95,5 +97,4 @@ the bathymetry and planned route.
 
 ## Energy Architecture For Cruise Vessel Simulation
 ![output (2)](https://github.com/user-attachments/assets/6ba6b003-a737-4548-bcce-5edae61bc879)
-
 
