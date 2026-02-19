@@ -20,7 +20,7 @@ def main() -> None:
     env = {"wind_speed": 8.0, "wind_angle_diff": 45.0, "wave_height": 2}
     controller_action = {
         "engine_loads": [85, 70, 85, 70],
-        "battery_power": -200000.0*0,  # discharging in watts
+        "battery_power": 200000.0 * 0,  # discharging in watts (positive => discharge)
         "target_speed": 18.0,
     }
 

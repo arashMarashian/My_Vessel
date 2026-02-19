@@ -18,7 +18,13 @@ defaults:
     snap_radius: 3
   energy:
     mode: hybrid
-    policy: load_smoothing
+    policy: hysteresis
+    hysteresis:
+      soc_low: 0.35
+      soc_high: 0.80
+      min_on_s: 900
+      min_off_s: 900
+      gen_ramp_kw_per_s: 2.0   # optional
     load_profile: synthetic_peaks
     dt_s: 60
     target_speed_kn: 8.0

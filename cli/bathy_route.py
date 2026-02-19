@@ -204,7 +204,7 @@ def main() -> None:
 
             engine_kw_targets = [ld / 100.0 * eng.max_power for ld, eng in zip(target_loads, self.ves.engines)]
             total_engine_kw = sum(engine_kw_targets)
-            battery_req_w = (total_engine_kw - total_power_kw) * 1000.0
+            battery_req_w = (total_power_kw - total_engine_kw) * 1000.0
 
             res = self.ves.step(
                 controller_action={
@@ -235,6 +235,7 @@ def main() -> None:
                 "aux_kw": aux_kw,
                 "total_power_kw": total_power_kw,
                 "battery_power_kw": battery_power_kw,
+                "battery_power_cmd_kw": battery_req_w / 1000.0,
                 "battery_soc_kwh": battery_soc_kwh,
             }
 
@@ -265,7 +266,8 @@ def main() -> None:
         base_fields = [
             "i", "lat", "lon", "v_kn", "seg_nm", "t_s", "t_total_s", "fuel_kg",
             "fuel_total_kg", "total_prop_kw", "hotel_kw", "aux_kw", "total_power_kw",
-            "battery_power_kw", "battery_soc_kwh",
+            "battery_power_kw", "p_batt_cmd_kw", "p_batt_actual_kw",
+            "battery_soc_kwh", "battery_soc", "p_gen_kw", "unserved_kw", "gen_mode",
             "env_wind_speed", "env_wind_angle_diff", "env_wave_height"
         ]
         fieldnames = base_fields + [f"e{j}_kw" for j in range(max_e)] + [f"e{j}_sfoc_g_per_kwh" for j in range(max_e)]
@@ -353,7 +355,8 @@ def main() -> None:
     hotel_kw = [r["hotel_kw"] for r in profile["segments"]]
     aux_kw = [r["aux_kw"] for r in profile["segments"]]
     batt_soc = [r.get("battery_soc_kwh", 0.0) for r in profile["segments"]]
-    batt_p_kw = [r.get("battery_power_kw", 0.0) for r in profile["segments"]]
+    batt_p_kw = [r.get("p_batt_actual_kw", r.get("battery_power_kw", 0.0)) for r in profile["segments"]]
+    batt_p_cmd_kw = [r.get("p_batt_cmd_kw", 0.0) for r in profile["segments"]]
     wind = [r["env_wind_speed"] for r in profile["segments"]]
     wind_diff = [r["env_wind_angle_diff"] for r in profile["segments"]]
     wave_h = [r["env_wave_height"] for r in profile["segments"]]
@@ -372,8 +375,10 @@ def main() -> None:
                os.path.join(args.out_dir, f"{args.out_prefix}_aux_power_vs_time.png"))
     _save_plot(ts, batt_soc, "Battery SOC vs time", "time [h]", "SOC [kWh]",
                os.path.join(args.out_dir, f"{args.out_prefix}_battery_soc_vs_time.png"))
-    _save_plot(ts, batt_p_kw, "Battery power vs time", "time [h]", "power [kW]",
+    _save_plot(ts, batt_p_kw, "Battery power (actual) vs time", "time [h]", "power [kW]",
                os.path.join(args.out_dir, f"{args.out_prefix}_battery_power_vs_time.png"))
+    _save_plot(ts, batt_p_cmd_kw, "Battery power (command) vs time", "time [h]", "power [kW]",
+               os.path.join(args.out_dir, f"{args.out_prefix}_battery_power_cmd_vs_time.png"))
 
     max_e = 0
     for r in profile["segments"]:

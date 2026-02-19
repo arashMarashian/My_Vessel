@@ -272,6 +272,8 @@ def _available_extra_series(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str,
         ("Aux Power [kW]", "aux_kw"),
         ("Battery SOC [kWh]", "battery_soc_kwh"),
         ("Battery Power [kW]", "battery_power_kw"),
+        ("Battery Power (cmd) [kW]", "p_batt_cmd_kw"),
+        ("Battery Power (actual) [kW]", "p_batt_actual_kw"),
         ("Wind Speed [m/s]", "env_wind_speed"),
         ("Wind Angle Diff [deg]", "env_wind_angle_diff"),
         ("Wave Height [m]", "env_wave_height"),
@@ -291,7 +293,10 @@ def _energy_df(energy: Dict[str, Any]) -> pd.DataFrame:
     times = [dt_s * i for i in range(len(load))]
     p_gen = energy.get("p_gen_series") or []
     p_batt = energy.get("p_batt_series") or []
+    p_batt_cmd = energy.get("p_batt_cmd_series") or []
     soc = energy.get("soc_series") or []
+    unserved = energy.get("unserved_kw_series") or []
+    modes = energy.get("mode_series") or []
     rows = []
     for idx, (t, load_kw) in enumerate(zip(times, load)):
         rows.append(
@@ -300,7 +305,10 @@ def _energy_df(energy: Dict[str, Any]) -> pd.DataFrame:
                 "load_kw": load_kw,
                 "p_gen_kw": p_gen[idx] if idx < len(p_gen) else 0.0,
                 "p_batt_kw": p_batt[idx] if idx < len(p_batt) else 0.0,
+                "p_batt_cmd_kw": p_batt_cmd[idx] if idx < len(p_batt_cmd) else 0.0,
+                "unserved_kw": unserved[idx] if idx < len(unserved) else 0.0,
                 "soc": soc[idx] if idx < len(soc) else None,
+                "mode": modes[idx] if idx < len(modes) else None,
             }
         )
     return pd.DataFrame(rows)

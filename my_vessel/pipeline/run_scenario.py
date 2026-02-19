@@ -259,6 +259,10 @@ def _diesel_only_result(
         "soc_series": [],
         "p_gen_series": p_gen_series,
         "p_batt_series": p_batt_series,
+        "p_batt_cmd_series": list(p_batt_series),
+        "unserved_kw_series": [0.0] * len(load_series),
+        "gen_on_series": [],
+        "mode_series": ["diesel_only"] * len(load_series),
         "load_series": list(load_series),
         "soc_min": None,
     }
@@ -297,6 +301,10 @@ def _run_energy_simulation(
             "soc_min": min(soc_series) if soc_series else None,
             "p_gen_series": sim.get("p_gen_series", []),
             "p_batt_series": sim.get("p_batt_series", []),
+            "p_batt_cmd_series": sim.get("p_batt_cmd_series", []),
+            "unserved_kw_series": sim.get("unserved_kw_series", []),
+            "gen_on_series": sim.get("gen_on_series", []),
+            "mode_series": sim.get("mode_series", []),
             "load_series": list(load_series),
         }
     return _diesel_only_result(generator, load_series, dt_s, policy)
@@ -348,6 +356,7 @@ class _VESAdapter:
             "aux_kw": aux_kw,
             "total_power_kw": total_power_kw,
             "battery_power_kw": float(res.get("battery_power_w", 0.0)) / 1000.0,
+             "battery_power_cmd_kw": 0.0,
             "battery_soc_kwh": float(res.get("battery_soc_kwh", 0.0)),
         }
 
@@ -458,6 +467,29 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
     battery = Battery(**battery_kwargs)
     ves = VesselEnergySystem(engines, battery)
 
+    energy_mode = str(energy_cfg.get("mode", "")).lower()
+    dispatch_policy = str(energy_cfg.get("policy", "load_smoothing"))
+    hybrid_for_profile: HybridPowerSystem | None = None
+    if energy_mode == "hybrid":
+        generator_cfg = energy_cfg.get("generator", {})
+        try:
+            generator = DieselGenerator(
+                p_max_kw=float(generator_cfg.get("p_max_kw", 2000.0)),
+                p_min_kw=float(generator_cfg.get("p_min_kw", 200.0)),
+                sfoc_curve=generator_cfg.get("sfoc_curve"),
+            )
+            if not battery_cfg:
+                raise ValueError("energy.battery configuration required for hybrid dispatch")
+            battery_model = BatteryModel(**battery_cfg)
+            hybrid_for_profile = HybridPowerSystem(generator=generator, battery=battery_model)
+        except Exception as exc:
+            warnings.warn(
+                f"hybrid dispatch unavailable for speed profile: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            hybrid_for_profile = None
+
     adapter = _VESAdapter(ves)
     dt_s = float(energy_cfg.get("dt_s", 60.0))
 
@@ -467,6 +499,8 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
         target_speed_knots=target_speed_kn,
         dt_s=int(dt_s),
         env_const=env_series,
+        hybrid_system=hybrid_for_profile,
+        dispatch_policy=dispatch_policy,
     )
 
     runtime_s = time.perf_counter() - t0

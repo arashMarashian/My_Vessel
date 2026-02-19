@@ -69,6 +69,24 @@ def test_run_scenario_returns_expected_keys():
     env_samples = result.get("environment_samples")
     assert env_samples is not None
     assert "wind_speed" in env_samples
+    energy_result = result.get("energy_result")
+    assert energy_result is not None
+    for key in (
+        "fuel_kg_total",
+        "soc_series",
+        "p_gen_series",
+        "p_batt_series",
+        "p_batt_cmd_series",
+        "mode_series",
+        "load_series",
+    ):
+        assert key in energy_result
+
+    profile = result.get("profile", {})
+    segments = profile.get("segments", [])
+    if segments:
+        max_speed = max(seg.get("v_kn", 0.0) for seg in segments)
+        assert max_speed <= config["energy"]["target_speed_kn"] + 1e-6
 
 
 def _base_config() -> Dict[str, Any]:
@@ -118,9 +136,18 @@ def test_energy_result_contains_required_keys():
     result = run_scenario(config)
     energy = result.get("energy_result")
     assert energy is not None
-    for key in ("fuel_kg_total", "soc_series", "p_gen_series", "p_batt_series", "load_series"):
+    for key in (
+        "fuel_kg_total",
+        "soc_series",
+        "p_gen_series",
+        "p_batt_series",
+        "p_batt_cmd_series",
+        "mode_series",
+        "load_series",
+    ):
         assert key in energy
     assert len(energy["load_series"]) == len(energy["p_gen_series"]) == len(energy["p_batt_series"])
+    assert len(energy["p_batt_cmd_series"]) == len(energy["p_batt_series"])
     if energy["soc_series"]:
         assert energy["soc_min"] == min(energy["soc_series"])
 
@@ -134,6 +161,7 @@ def test_diesel_only_mode_smoke():
     assert energy is not None
     assert energy["mode"] == "diesel_only"
     assert len(energy["p_batt_series"]) == len(energy["load_series"])
+    assert len(energy.get("mode_series", [])) == len(energy["load_series"])
 
 
 def test_synthetic_peaks_uses_battery():

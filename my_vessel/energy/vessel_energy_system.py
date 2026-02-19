@@ -108,36 +108,39 @@ class Battery:
 
     def _clamp_power_kw(self, power_kw: float) -> float:
         if power_kw >= 0:
-            return min(power_kw, self.p_charge_max_kw)
-        return max(power_kw, -self.p_discharge_max_kw)
+            return min(power_kw, self.p_discharge_max_kw)
+        return max(power_kw, -self.p_charge_max_kw)
 
     def step(self, power_w: float, dt_h: float) -> float:
         """Apply power for ``dt_h`` hours and update state of charge.
 
-        Positive power draws from the bus (charging). Returns the actual applied power in watts.
+        Positive ``power_w`` discharges the battery to support the load (power out of the pack).
+        Negative values charge the battery. Returns the actual applied power in watts.
         """
         if dt_h <= 0:
             raise ValueError("dt_h must be positive")
 
         power_kw = self._clamp_power_kw(power_w / 1000.0)
         if power_kw >= 0:
-            # charging
-            energy_added = power_kw * dt_h * self.eta_charge
-            capacity_remaining = (self.soc_max - self._soc) * self.capacity_kwh
-            if energy_added > capacity_remaining and self.eta_charge > 0:
-                energy_added = capacity_remaining
-                power_kw = energy_added / (dt_h * self.eta_charge) if dt_h > 0 else 0.0
-            self._soc += energy_added / self.capacity_kwh
-        else:
             # discharging
-            discharge_kw = -power_kw
+            discharge_kw = power_kw
             energy_needed = discharge_kw * dt_h / self.eta_discharge
             available = (self._soc - self.soc_min) * self.capacity_kwh
             if energy_needed > available and self.eta_discharge > 0:
                 energy_needed = available
                 discharge_kw = energy_needed * self.eta_discharge / dt_h if dt_h > 0 else 0.0
-                power_kw = -discharge_kw
             self._soc -= energy_needed / self.capacity_kwh
+            power_kw = discharge_kw
+        else:
+            # charging
+            charge_kw = -power_kw
+            energy_added = charge_kw * dt_h * self.eta_charge
+            capacity_remaining = (self.soc_max - self._soc) * self.capacity_kwh
+            if energy_added > capacity_remaining and self.eta_charge > 0:
+                energy_added = capacity_remaining
+                charge_kw = energy_added / (dt_h * self.eta_charge) if dt_h > 0 else 0.0
+                power_kw = -charge_kw
+            self._soc += energy_added / self.capacity_kwh
 
         self._soc = max(self.soc_min, min(self.soc_max, self._soc))
         return power_kw * 1000.0
@@ -200,12 +203,12 @@ class VesselEnergySystem:
         total_engine_power = sum(engine_powers)
         actual_batt_power = self.battery.step(battery_req, timestep_hours)
 
-        supply = total_engine_power + (-actual_batt_power if actual_batt_power < 0 else 0.0)
+        supply = total_engine_power + (actual_batt_power if actual_batt_power > 0 else 0.0)
 
         P_prop = propulsion_power(environment, target_speed)
         P_hotel = hotel_power(environment)
         P_aux = aux_power(environment, P_prop)
-        demand = P_prop + P_hotel + P_aux + (actual_batt_power if actual_batt_power > 0 else 0.0)
+        demand = P_prop + P_hotel + P_aux + (-actual_batt_power if actual_batt_power < 0 else 0.0)
 
         # If supply is insufficient at target speed, find the maximum achievable speed
         actual_speed = target_speed
@@ -215,7 +218,9 @@ class VesselEnergySystem:
                 mid = 0.5 * (lo + hi)
                 P_prop_m = propulsion_power(environment, mid)
                 P_aux_m = aux_power(environment, P_prop_m)
-                demand_m = P_prop_m + P_hotel + P_aux_m + (actual_batt_power if actual_batt_power > 0 else 0.0)
+                demand_m = (
+                    P_prop_m + P_hotel + P_aux_m + (-actual_batt_power if actual_batt_power < 0 else 0.0)
+                )
                 if demand_m <= supply:
                     lo = mid
                 else:
@@ -224,7 +229,7 @@ class VesselEnergySystem:
             # Final check
             P_prop = propulsion_power(environment, actual_speed)
             P_aux = aux_power(environment, P_prop)
-            demand = P_prop + P_hotel + P_aux + (actual_batt_power if actual_batt_power > 0 else 0.0)
+            demand = P_prop + P_hotel + P_aux + (-actual_batt_power if actual_batt_power < 0 else 0.0)
             if supply + 1e-6 < demand:
                 # Even at zero speed we cannot satisfy demand (should not happen with nonnegative hotel)
                 actual_speed = 0.0
