@@ -17,13 +17,27 @@ defaults:
     iterations: 160
     snap_radius: 3
   energy:
+    mode: hybrid
+    policy: load_smoothing
+    load_profile: synthetic_peaks
+    dt_s: 60
+    target_speed_kn: 8.0
+    hotel_load_kw: 150.0
+    propulsion_kw: 600.0
+    generator:
+      p_max_kw: 1200.0
+      p_min_kw: 250.0
+    battery:
+      capacity_kwh: 4000.0
+      soc_init: 0.6
+      soc_min: 0.25
+      soc_max: 0.95
+      p_charge_max_kw: 600.0
+      p_discharge_max_kw: 700.0
+      eta_charge: 0.96
+      eta_discharge: 0.95
     engine_yaml: data/engine_data.yaml
     max_engines: 2
-    battery:
-      capacity_kwh: 1500.0
-      soc_kwh: 750.0
-    target_speed_kn: 8.0
-    dt_s: 60
   environment:
     mode: constant
     values:

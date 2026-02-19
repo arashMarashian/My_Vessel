@@ -32,6 +32,15 @@ class BatteryModel:
         if cfg.soc_init < cfg.soc_min or cfg.soc_init > cfg.soc_max:
             raise ValueError("soc_init must lie within [soc_min, soc_max]")
         self.cfg = cfg
+        # Expose public attributes so other components do not need to reach
+        # into ``cfg`` for common parameters.
+        self.capacity_kwh = cfg.capacity_kwh
+        self.soc_min = cfg.soc_min
+        self.soc_max = cfg.soc_max
+        self.p_charge_max_kw = cfg.p_charge_max_kw
+        self.p_discharge_max_kw = cfg.p_discharge_max_kw
+        self.eta_charge = cfg.eta_charge
+        self.eta_discharge = cfg.eta_discharge
         self._soc = cfg.soc_init
 
     @property

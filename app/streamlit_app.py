@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import io
-import json
 import hashlib
 import sys
 from pathlib import Path
@@ -10,12 +8,6 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
-# Ensure repository root on sys.path so we can import local packages when running from app/
-_ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 
 import streamlit as st
@@ -25,21 +17,10 @@ from folium.plugins import Draw
 import pandas as pd
 import plotly.express as px
 
-from utils.paths import ensure_results_subdir
 from my_vessel.bathy.fetch import BBox, fetch_geotiff_bytes, read_raster_from_bytes
 from my_vessel.bathy.grid import oriented_array_and_bounds
 from my_vessel.bathy.overlay import make_overlay_data_url
-from my_vessel.pipeline.route_from_bathy import plan_route
-from my_vessel.environment.env_sources import sample_env_along_route
-from my_vessel.pipeline.speed_profile import feasible_speed_profile
-from my_vessel.energy.vessel_energy_system import (
-    VesselEnergySystem,
-    Battery,
-    hotel_power,
-    aux_power,
-)
-from my_vessel.energy.power_model import propulsion_power
-from engine_loader import load_engines_from_yaml
+from my_vessel.pipeline.run_scenario import run_scenario
 
 
 st.set_page_config(page_title="Bathymetry Route Planner", layout="wide")
@@ -74,109 +55,6 @@ def _login_ui():
 if not st.session_state.get("auth_ok"):
     _login_ui()
     st.stop()
-
-
-def _adapter_for_ves(ves: VesselEnergySystem, reserve_n_engines: int = 1):
-    class _Adapter:
-        def __init__(self, ves):
-            self.ves = ves
-
-        def step(self, environment, target_speed, timestep_seconds):
-            P_prop_w = propulsion_power(environment, target_speed)
-            hotel_kw = hotel_power(environment) / 1000.0
-            aux_kw = aux_power(environment, P_prop_w) / 1000.0
-            total_prop_kw = P_prop_w / 1000.0
-            total_power_kw = total_prop_kw + hotel_kw + aux_kw
-
-            # Staged dispatch: run the minimum number of engines (reserving some) and share load uniformly
-            n = len(self.ves.engines)
-            idx_sorted = sorted(range(n), key=lambda i: self.ves.engines[i].max_power, reverse=True)
-            reserve = set(idx_sorted[-max(0, min(reserve_n_engines, n)) :])
-            pool = [i for i in idx_sorted if i not in reserve]
-
-            def try_k(indices):
-                sum_max = sum(self.ves.engines[i].max_power for i in indices)
-                share = 0.0 if sum_max <= 0 else total_power_kw / sum_max
-                load_pct = share * 100.0
-                # Check if within bounds for all selected engines
-                mins = [self.ves.engines[i].min_load for i in indices]
-                maxs = [self.ves.engines[i].max_load for i in indices]
-                ok_upper = load_pct <= min(maxs)
-                ok_lower = load_pct >= max(mins)
-                return ok_lower and ok_upper, max(mins), min(maxs), load_pct
-
-            active = []
-            chosen_load_pct = None
-            # Prefer not to use reserved engines
-            for k in range(1, max(1, len(pool)) + 1):
-                cand = pool[:k]
-                ok, lo, hi, load_pct = try_k(cand)
-                if ok:
-                    active = cand
-                    chosen_load_pct = load_pct
-                    break
-            # If still not ok, include reserved engines progressively
-            if not active:
-                all_sorted = idx_sorted
-                for k in range(1, n + 1):
-                    cand = all_sorted[:k]
-                    ok, lo, hi, load_pct = try_k(cand)
-                    if ok:
-                        active = cand
-                        chosen_load_pct = load_pct
-                        break
-            # Fallback: if nothing meets bounds even with all engines, use all engines at max load
-            if not active:
-                active = idx_sorted
-                chosen_load_pct = max(e.min_load for e in self.ves.engines)
-
-            target_loads = [0.0] * n
-            if chosen_load_pct is not None:
-                for i in active:
-                    eng = self.ves.engines[i]
-                    target_loads[i] = max(eng.min_load, min(eng.max_load, chosen_load_pct))
-            else:
-                # Very low demand: use a single largest engine at min load and charge battery
-                i0 = idx_sorted[0]
-                target_loads[i0] = self.ves.engines[i0].min_load
-
-            engine_kw_targets = [ld / 100.0 * eng.max_power for ld, eng in zip(target_loads, self.ves.engines)]
-            total_engine_kw = sum(engine_kw_targets)
-            battery_req_w = (total_engine_kw - total_power_kw) * 1000.0
-
-            res = self.ves.step(
-                controller_action={
-                    "engine_loads": target_loads,
-                    "battery_power": battery_req_w,
-                    "target_speed": target_speed,
-                },
-                environment=environment,
-                timestep_hours=timestep_seconds / 3600.0,
-            )
-            engine_info = []
-            for eng, load in zip(self.ves.engines, target_loads):
-                kw = load / 100.0 * eng.max_power
-                # When engine is off (load==0 or power==0), report SFOC as 0
-                if load <= 0.0 or kw <= 0.0:
-                    sfoc = 0.0
-                else:
-                    sfoc = eng.get_fuel_consumption(load)
-                engine_info.append({"power_kw": kw, "sfoc_g_per_kwh": sfoc})
-            battery_power_kw = float(res.get("battery_power_w", 0.0)) / 1000.0
-            battery_soc_kwh = float(res.get("battery_soc_kwh", 0.0))
-            return {
-                "achieved_speed_knots": res.get("actual_speed", 0.0),
-                "fuel_consumed_kg": sum(res.get("fuel_used_g", [])) / 1000.0,
-                "engines": engine_info,
-                "total_propulsion_power_kw": total_prop_kw,
-                "hotel_kw": hotel_kw,
-                "aux_kw": aux_kw,
-                "total_power_kw": total_power_kw,
-                "battery_power_kw": battery_power_kw,
-                "battery_soc_kwh": battery_soc_kwh,
-            }
-
-    return _Adapter(ves)
 
 
 def _df_from_profile(profile: Dict) -> pd.DataFrame:
@@ -238,22 +116,23 @@ def run_pipeline(
     env_sample_stride: int,
     depart_iso: Optional[str],
     target_speed_kn: float,
-    dt_s: int,
-    engine_yaml: str = "data/engine_data.yaml",
-    out_prefix: str = "route_out",
-    report: Optional[callable] = None,
-    dem_bytes: Optional[bytes] = None,
-    api_key: Optional[str] = None,
-    use_battery: bool = False,
-    bat_cap_kwh: float = 0.0,
-    bat_soc_pct: float = 50.0,
-    bat_eta_c_pct: float = 95.0,
-    bat_eta_d_pct: float = 95.0,
-) -> Tuple[Dict, List[Tuple[float, float]], Tuple[float, float, float, float], any]:
+    engine_yaml: str,
+    out_prefix: str,
+    report: Optional[callable],
+    dem_bytes: Optional[bytes],
+    api_key: Optional[str],
+    energy_mode: str,
+    energy_policy: str,
+    energy_load_profile: str,
+    energy_dt_s: float,
+    generator_params: Dict[str, float],
+    battery_params: Optional[Dict[str, float]],
+    hotel_load_kw: float,
+    propulsion_constant_kw: Optional[float],
+    propulsion_fallback_kw: float,
+) -> Dict[str, Any]:
     os.environ.setdefault("MPLBACKEND", "Agg")
-    out_dir = ensure_results_subdir("bathy_route")
 
-    # Fetch DEM
     if report:
         report("Downloading DEM…")
     if dem_bytes is None:
@@ -265,79 +144,64 @@ def run_pipeline(
     src = read_raster_from_bytes(tif)
     arr, bounds = oriented_array_and_bounds(src, downsample=downsample)
 
-    # Plan route
-    if report:
-        report("Planning route…")
     min_depth = float(draft) + float(ukc)
-    grid, path_rc, path_ll = plan_route(
-        arr, bounds, start, goal,
-        min_depth_m=min_depth, dilate_cells=int(dilate_cells),
-        densify_pts=4, smoothness=0.3, iterations=200, snap_radius=50,
-        verbose=False,
-    )
-
-    # Energy system
-    engines = load_engines_from_yaml(engine_yaml)
-    if use_battery and bat_cap_kwh > 0:
-        bat = Battery(
-            capacity_kwh=float(bat_cap_kwh),
-            soc_kwh=float(bat_cap_kwh) * float(bat_soc_pct) / 100.0,
-            charge_eff=float(bat_eta_c_pct) / 100.0,
-            discharge_eff=float(bat_eta_d_pct) / 100.0,
-        )
-    else:
-        bat = Battery(capacity_kwh=0.0)
-    ves = VesselEnergySystem(engines, battery=bat)
-    adapter = _adapter_for_ves(ves)
-
-    # Environment series
-    if report:
-        report("Sampling environment…")
+    env_cfg: Dict[str, Any]
     if env_source == "openmeteo":
         if not depart_iso:
-            raise ValueError("depart_iso is required for env_source=openmeteo")
-        env_series = sample_env_along_route(path_ll, depart_iso, target_speed_kn, sample_stride=env_sample_stride)
+            raise ValueError("Departure time required for Open-Meteo sampling")
+        env_cfg = {
+            "mode": "openmeteo",
+            "depart_iso": depart_iso,
+            "sample_stride": int(env_sample_stride),
+            "target_speed_kn": target_speed_kn,
+        }
     else:
-        env_series = [{"wind_speed": 0.0, "wind_angle_diff": 0.0, "wave_height": 0.0} for _ in path_ll]
+        env_cfg = {
+            "mode": "constant",
+            "values": {"wind_speed": 0.0, "wind_angle_diff": 0.0, "wave_height": 0.0},
+        }
 
-    if report:
-        report("Building speed/power profile…")
-    profile = feasible_speed_profile(
-        adapter, path_ll, target_speed_knots=target_speed_kn, dt_s=dt_s, env_const=env_series
-    )
-
-    # Save CSV & GeoJSON like CLI for parity
-    if report:
-        report("Saving outputs…")
-    csv_path = os.path.join(out_dir, f"{out_prefix}.csv")
-    df = _df_from_profile(profile)
-    if not df.empty:
-        # expand engine columns
-        max_e = max((len(r.get("per_engine_kw", [])) for r in profile["segments"]), default=0)
-        for j in range(max_e):
-            df[f"e{j}_kw"] = [
-                (r.get("per_engine_kw", [None] * max_e)[j] if j < len(r.get("per_engine_kw", [])) else None)
-                for r in profile["segments"]
-            ]
-            df[f"e{j}_sfoc_g_per_kwh"] = [
-                (r.get("per_engine_sfoc_g_per_kwh", [None] * max_e)[j] if j < len(r.get("per_engine_sfoc_g_per_kwh", [])) else None)
-                for r in profile["segments"]
-            ]
-        df.to_csv(csv_path, index=False)
-
-    gj = {
-        "type": "FeatureCollection",
-        "features": [{
-            "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": [[lon, lat] for lat, lon in path_ll]},
-            "properties": {"min_depth_m": min_depth, **profile.get("totals", {})},
-        }],
+    energy_cfg: Dict[str, Any] = {
+        "mode": energy_mode,
+        "policy": energy_policy,
+        "load_profile": energy_load_profile,
+        "dt_s": energy_dt_s,
+        "target_speed_kn": target_speed_kn,
+        "engine_yaml": engine_yaml,
+        "hotel_load_kw": hotel_load_kw,
+        "propulsion_kw_fallback": propulsion_fallback_kw,
+        "generator": generator_params,
     }
-    gj_path = os.path.join(out_dir, f"{out_prefix}.geojson")
-    with open(gj_path, "w") as f:
-        json.dump(gj, f)
+    if propulsion_constant_kw is not None:
+        energy_cfg["propulsion_kw"] = propulsion_constant_kw
+    if battery_params:
+        energy_cfg["battery"] = battery_params
 
-    return profile, path_ll, bounds, arr
+    cfg = {
+        "name": out_prefix,
+        "start": list(start),
+        "goal": list(goal),
+        "bathy": {
+            "array": arr,
+            "bounds": list(bounds),
+            "min_depth_m": min_depth,
+            "dilate_cells": int(dilate_cells),
+        },
+        "planning": {
+            "densify_pts": 4,
+            "smoothness": 0.3,
+            "iterations": 200,
+            "snap_radius": 50,
+        },
+        "environment": env_cfg,
+        "energy": energy_cfg,
+    }
+    if report:
+        report("Running scenario…")
+    result = run_scenario(cfg)
+    result["_bathy_array"] = arr
+    result["_bounds"] = bounds
+    return result
 
 
 def _render_route_map(arr, bounds, path_ll):
@@ -419,6 +283,29 @@ def _available_extra_series(df: pd.DataFrame) -> Tuple[Dict[str, str], Dict[str,
     return label_to_col, overlays
 
 
+def _energy_df(energy: Dict[str, Any]) -> pd.DataFrame:
+    load = energy.get("load_series") or []
+    dt_s = float(energy.get("dt_s") or 0.0)
+    if not load or dt_s <= 0:
+        return pd.DataFrame()
+    times = [dt_s * i for i in range(len(load))]
+    p_gen = energy.get("p_gen_series") or []
+    p_batt = energy.get("p_batt_series") or []
+    soc = energy.get("soc_series") or []
+    rows = []
+    for idx, (t, load_kw) in enumerate(zip(times, load)):
+        rows.append(
+            {
+                "time_s": t,
+                "load_kw": load_kw,
+                "p_gen_kw": p_gen[idx] if idx < len(p_gen) else 0.0,
+                "p_batt_kw": p_batt[idx] if idx < len(p_batt) else 0.0,
+                "soc": soc[idx] if idx < len(soc) else None,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 st.title("Bathymetry Route Planner")
 st.caption("Draw a bounding box and start/goal on the map, set parameters, and run.")
 
@@ -441,18 +328,47 @@ with st.sidebar:
     if env_source == "openmeteo":
         depart_iso = st.text_input("Departure time (UTC ISO8601)", value="2025-08-27T10:00Z")
     engine_yaml = st.text_input("Engine YAML", value="data/engine_data.yaml")
-    use_battery = st.checkbox("Use battery system", value=False)
-    if use_battery:
-        st.markdown("Battery parameters")
-        bat_cap = st.number_input("Capacity [kWh]", min_value=0.0, value=1000.0, step=50.0)
-        bat_soc_pct = st.number_input("Initial SOC [%]", min_value=0.0, max_value=100.0, value=50.0, step=5.0)
-        bat_eta_c = st.number_input("Charge efficiency [%]", min_value=1.0, max_value=100.0, value=95.0, step=1.0)
-        bat_eta_d = st.number_input("Discharge efficiency [%]", min_value=1.0, max_value=100.0, value=95.0, step=1.0)
+    st.markdown("Energy Simulation")
+    energy_mode = st.selectbox("Energy mode", options=["diesel_only", "hybrid"], index=1)
+    energy_policy = st.selectbox("Dispatch policy", options=["naive", "load_smoothing"], index=1)
+    load_profile = st.selectbox(
+        "Load profile",
+        options=["constant", "synthetic_peaks", "from_speed"],
+        index=1 if energy_mode == "hybrid" else 0,
+    )
+    energy_dt_s = st.number_input("Energy timestep [s]", min_value=5, max_value=3600, value=60, step=5)
+    hotel_load_kw = st.number_input("Hotel load [kW]", min_value=0.0, value=150.0, step=10.0)
+    propulsion_override = st.checkbox("Use constant propulsion load", value=False)
+    if propulsion_override:
+        propulsion_constant_kw = st.number_input("Propulsion load [kW]", min_value=0.0, value=600.0, step=25.0)
     else:
-        bat_cap = 0.0
-        bat_soc_pct = 50.0
-        bat_eta_c = 95.0
-        bat_eta_d = 95.0
+        propulsion_constant_kw = None
+    propulsion_fallback_kw = st.number_input("Fallback propulsion load [kW]", min_value=10.0, value=500.0, step=10.0)
+    st.markdown("Generator parameters")
+    gen_p_max = st.number_input("Generator max power [kW]", min_value=100.0, value=1500.0, step=50.0)
+    gen_p_min = st.number_input("Generator min power [kW]", min_value=10.0, value=300.0, step=10.0)
+    battery_params = None
+    if energy_mode == "hybrid":
+        st.markdown("Battery parameters")
+        bat_capacity = st.number_input("Capacity [kWh]", min_value=10.0, value=1200.0, step=50.0)
+        bat_soc_init = st.number_input("Initial SOC [0-1]", min_value=0.0, max_value=1.0, value=0.6, step=0.05)
+        bat_soc_min = st.number_input("SOC min [0-1]", min_value=0.0, max_value=0.9, value=0.2, step=0.05)
+        bat_soc_max = st.number_input("SOC max [0-1]", min_value=0.1, max_value=1.0, value=0.95, step=0.05)
+        bat_p_charge = st.number_input("Charge limit [kW]", min_value=10.0, value=300.0, step=10.0)
+        bat_p_discharge = st.number_input("Discharge limit [kW]", min_value=10.0, value=300.0, step=10.0)
+        bat_eta_c = st.number_input("Charge eff. [%]", min_value=10.0, max_value=100.0, value=96.0, step=1.0)
+        bat_eta_d = st.number_input("Discharge eff. [%]", min_value=10.0, max_value=100.0, value=95.0, step=1.0)
+        battery_params = {
+            "capacity_kwh": bat_capacity,
+            "soc_init": bat_soc_init,
+            "soc_min": bat_soc_min,
+            "soc_max": bat_soc_max,
+            "p_charge_max_kw": bat_p_charge,
+            "p_discharge_max_kw": bat_p_discharge,
+            "eta_charge": bat_eta_c / 100.0,
+            "eta_discharge": bat_eta_d / 100.0,
+        }
+    generator_params = {"p_max_kw": gen_p_max, "p_min_kw": gen_p_min}
     out_prefix = st.text_input("Output prefix", value="hel_to_rey")
     st.caption("Optional: upload a local GeoTIFF to bypass remote fetch.")
     local_tif = st.file_uploader("Local GeoTIFF (optional)", type=["tif", "tiff"], accept_multiple_files=False)
@@ -544,24 +460,36 @@ if run_btn:
                 if local_tif is not None:
                     report("Reading local GeoTIFF…")
                     dem_bytes = local_tif.read()
-                profile, path_ll, bounds, arr = run_pipeline(
-                    bbox, start, goal,
-                    draft=draft, ukc=ukc, dilate_cells=int(dilate_cells), downsample=int(downsample),
-                    dem_type=dem_type, env_source=env_source, env_sample_stride=int(env_stride),
-                    depart_iso=depart_iso, target_speed_kn=float(target_speed_kn), dt_s=int(dt_s),
-                    engine_yaml=engine_yaml, out_prefix=out_prefix, report=report, dem_bytes=dem_bytes,
+                run_result = run_pipeline(
+                    bbox,
+                    start,
+                    goal,
+                    draft=draft,
+                    ukc=ukc,
+                    dilate_cells=int(dilate_cells),
+                    downsample=int(downsample),
+                    dem_type=dem_type,
+                    env_source=env_source,
+                    env_sample_stride=int(env_stride),
+                    depart_iso=depart_iso,
+                    target_speed_kn=float(target_speed_kn),
+                    engine_yaml=engine_yaml,
+                    out_prefix=out_prefix,
+                    report=report,
+                    dem_bytes=dem_bytes,
                     api_key=api_key or os.getenv("OPENTOPO_API_KEY"),
-                    use_battery=use_battery, bat_cap_kwh=bat_cap, bat_soc_pct=bat_soc_pct,
-                    bat_eta_c_pct=bat_eta_c, bat_eta_d_pct=bat_eta_d,
+                    energy_mode=energy_mode,
+                    energy_policy=energy_policy,
+                    energy_load_profile=load_profile,
+                    energy_dt_s=float(energy_dt_s),
+                    generator_params=generator_params,
+                    battery_params=battery_params,
+                    hotel_load_kw=hotel_load_kw,
+                    propulsion_constant_kw=propulsion_constant_kw,
+                    propulsion_fallback_kw=propulsion_fallback_kw,
                 )
                 # Persist results across reruns, then re-render outside the button block
-                st.session_state["last_result"] = {
-                    "profile": profile,
-                    "path_ll": path_ll,
-                    "bounds": bounds,
-                    "arr": arr,
-                    "out_prefix": out_prefix,
-                }
+                st.session_state["last_result"] = {"data": run_result, "out_prefix": out_prefix}
                 status.update(label="Run complete", state="complete")
                 st.rerun()
             except Exception as e:
@@ -572,14 +500,20 @@ if run_btn:
 # Always render last results if present (survives reruns)
 if st.session_state.get("last_result"):
     res = st.session_state["last_result"]
-    profile = res["profile"]
-    path_ll = res["path_ll"]
-    bounds = res["bounds"]
-    arr = res["arr"]
+    data = res.get("data", {})
+    profile = data.get("profile", {})
+    path_ll = data.get("smoothed_path") or data.get("path_latlon") or []
+    bounds = data.get("_bounds") or tuple(data.get("grid_bounds", ()))
+    arr = data.get("_bathy_array")
+    if arr is None:
+        arr = data.get("bathy")
     out_prefix = res.get("out_prefix", "route_out")
 
     st.subheader(f"Results: {out_prefix}")
-    _render_route_map(arr, bounds, path_ll)
+    if arr is not None and bounds:
+        _render_route_map(arr, bounds, path_ll)
+    else:
+        st.warning("Missing bathymetry data for map rendering.")
 
     df = _df_from_profile(profile)
     if df.empty:
@@ -605,3 +539,35 @@ if st.session_state.get("last_result"):
                         st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No additional series available in results.")
+
+        energy_result = data.get("energy_result")
+        if energy_result:
+            st.subheader("Energy Simulation")
+            fuel_total = energy_result.get("fuel_kg_total", 0.0)
+            soc_min = energy_result.get("soc_min")
+            cols = st.columns(3)
+            cols[0].metric("Fuel (dispatch)", f"{fuel_total:.2f} kg")
+            cols[1].metric("Mode", energy_result.get("mode", "n/a"))
+            if soc_min is not None:
+                cols[2].metric("Min SOC", f"{soc_min*100:.1f}%")
+            energy_df = _energy_df(energy_result)
+            if not energy_df.empty:
+                fig = px.line(
+                    energy_df,
+                    x="time_s",
+                    y=["load_kw", "p_gen_kw", "p_batt_kw"],
+                    labels={"value": "Power [kW]", "time_s": "Time [s]"},
+                    title="Power Balance",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                if energy_df["soc"].notna().any():
+                    fig_soc = px.line(
+                        energy_df.dropna(subset=["soc"]),
+                        x="time_s",
+                        y="soc",
+                        labels={"soc": "State of Charge", "time_s": "Time [s]"},
+                        title="Battery SOC",
+                    )
+                    st.plotly_chart(fig_soc, use_container_width=True)
+            else:
+                st.info("Energy time series unavailable.")

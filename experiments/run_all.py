@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -83,11 +84,69 @@ def _write_summary(rows: List[Dict[str, Any]], out_path: Path) -> None:
         "runtime_s",
         "path_cells",
         "smoothed_points",
+        "energy_mode",
+        "energy_policy",
+        "energy_fuel_kg_total",
+        "energy_min_soc",
     ]
     with out_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _write_energy_timeseries(slug: str, energy: Dict[str, Any], out_dir: Path) -> None:
+    load_series = energy.get("load_series") or []
+    if not load_series:
+        return
+    dt_s = float(energy.get("dt_s", 0.0))
+    if dt_s <= 0:
+        return
+    p_gen = energy.get("p_gen_series") or [0.0] * len(load_series)
+    p_batt = energy.get("p_batt_series") or [0.0] * len(load_series)
+    soc = energy.get("soc_series") or []
+    times = [dt_s * i for i in range(len(load_series))]
+
+    rows = []
+    for idx, (t, load_kw) in enumerate(zip(times, load_series)):
+        rows.append(
+            {
+                "time_s": t,
+                "load_kw": load_kw,
+                "p_gen_kw": p_gen[idx] if idx < len(p_gen) else 0.0,
+                "p_batt_kw": p_batt[idx] if idx < len(p_batt) else 0.0,
+                "soc": soc[idx] if idx < len(soc) else "",
+            }
+        )
+
+    csv_path = out_dir / f"{slug}_energy_timeseries.csv"
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["time_s", "load_kw", "p_gen_kw", "p_batt_kw", "soc"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    fig, ax1 = plt.subplots(figsize=(7, 4))
+    ax1.plot(times, load_series, label="Load (kW)", color="tab:blue")
+    ax1.plot(times, p_gen[: len(times)], label="Generator (kW)", color="tab:orange")
+    if any(abs(x) > 1e-6 for x in p_batt):
+        ax1.plot(times, p_batt[: len(times)], label="Battery (kW)", color="tab:green")
+    ax1.set_xlabel("Time [s]")
+    ax1.set_ylabel("Power [kW]")
+    ax1.grid(True, alpha=0.3)
+    handles, labels = ax1.get_legend_handles_labels()
+
+    if soc:
+        ax2 = ax1.twinx()
+        ax2.plot(times[: len(soc)], soc, label="SOC", color="tab:red", linestyle="--")
+        ax2.set_ylabel("State of Charge")
+        h2, l2 = ax2.get_legend_handles_labels()
+        handles += h2
+        labels += l2
+    if handles:
+        ax1.legend(handles, labels, loc="best")
+    fig.tight_layout()
+    fig.savefig(out_dir / f"{slug}_energy_timeseries.png", dpi=200)
+    plt.close(fig)
 
 
 def main() -> None:
@@ -142,6 +201,7 @@ def main() -> None:
         slug = _slugify(name)
         result = run_scenario(cfg)
         metrics = result.get("metrics", {})
+        energy = result.get("energy_result") or {}
         summary_rows.append(
             {
                 "scenario": name,
@@ -151,6 +211,10 @@ def main() -> None:
                 "runtime_s": metrics.get("runtime_s", 0.0),
                 "path_cells": metrics.get("path_cells", 0),
                 "smoothed_points": metrics.get("smoothed_points", 0),
+                "energy_mode": energy.get("mode"),
+                "energy_policy": energy.get("policy"),
+                "energy_fuel_kg_total": energy.get("fuel_kg_total"),
+                "energy_min_soc": energy.get("soc_min"),
             }
         )
 
@@ -164,10 +228,13 @@ def main() -> None:
                     "name": name,
                     "metrics": metrics,
                     "environment": result.get("environment_samples"),
+                    "energy_result": energy or None,
                 },
                 f,
                 indent=2,
             )
+        if energy:
+            _write_energy_timeseries(slug, energy, out_dir)
 
     _write_summary(summary_rows, out_dir / "summary.csv")
     print(f"Wrote {len(summary_rows)} scenario(s) to {out_dir}")

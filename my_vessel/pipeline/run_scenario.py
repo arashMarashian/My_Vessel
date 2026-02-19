@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
@@ -12,12 +13,16 @@ from my_vessel.pipeline.route_from_bathy import plan_route
 from my_vessel.pipeline.speed_profile import feasible_speed_profile
 from my_vessel.bathy.grid import rc_to_latlon
 from environment.map_utils import extract_environment_along_path, load_environment_data
+from my_vessel.environment.env_sources import sample_env_along_route
 from my_vessel.energy.vessel_energy_system import (
     Battery,
     VesselEnergySystem,
     hotel_power,
     aux_power,
 )
+from my_vessel.energy.diesel_generator import DieselGenerator
+from my_vessel.energy.hybrid_system import HybridPowerSystem
+from my_vessel.energy.battery_model import BatteryModel
 from my_vessel.energy.power_model import propulsion_power
 from engine_loader import Engine, load_engines_from_yaml
 
@@ -96,8 +101,10 @@ def _ensure_len(seq: Sequence[Dict[str, float]], length: int) -> List[Dict[str, 
 def _env_series_and_samples(
     env_cfg: Dict[str, Any],
     path_rc: Sequence[Tuple[int, int]],
+    path_ll: Sequence[Tuple[float, float]],
     path_len: int,
     base_dir: Path,
+    default_speed_kn: float,
 ) -> tuple[List[Dict[str, float]], Dict[str, List[float]] | None]:
     mode = env_cfg.get("mode", "constant")
     samples: Dict[str, List[float]] | None = None
@@ -116,6 +123,17 @@ def _env_series_and_samples(
         for i in range(max(path_len, 1)):
             idx = min(i, len(coords) - 1)
             env_series.append({k: float(vals[idx]) for k, vals in samples.items()})
+    elif mode == "openmeteo":
+        depart_iso = env_cfg.get("depart_iso")
+        if not depart_iso:
+            raise ValueError("environment.mode=openmeteo requires 'depart_iso'")
+        stride = int(env_cfg.get("sample_stride", 1))
+        tgt_speed = float(env_cfg.get("target_speed_kn", default_speed_kn))
+        env_series = sample_env_along_route(list(path_ll), depart_iso, tgt_speed, sample_stride=stride)
+        if env_series:
+            samples = {k: [float(row.get(k, 0.0)) for row in env_series] for k in env_series[0].keys()}
+        else:
+            samples = None
     else:
         values = {k: float(v) for k, v in env_cfg.get("values", {}).items()}
         if not values:
@@ -124,6 +142,164 @@ def _env_series_and_samples(
         samples = {k: [float(v) for _ in path_rc] for k, v in values.items()}
     env_series = _ensure_len(env_series, max(path_len, 1))
     return env_series, samples
+
+
+def _load_from_profile_segments(profile: Dict[str, Any], dt_s: float) -> List[float] | None:
+    segments = profile.get("segments", [])
+    if not segments or dt_s <= 0:
+        return None
+    timeline: List[Tuple[float, float, float]] = []
+    t_cursor = 0.0
+    for seg in segments:
+        duration = float(seg.get("t_s", 0.0))
+        if duration <= 0:
+            continue
+        load_kw = float(
+            seg.get(
+                "total_power_kw",
+                seg.get("total_prop_kw", 0.0) + seg.get("hotel_kw", 0.0) + seg.get("aux_kw", 0.0),
+            )
+        )
+        timeline.append((t_cursor, t_cursor + duration, load_kw))
+        t_cursor += duration
+    if not timeline or t_cursor <= 0:
+        return None
+    steps = max(1, int(math.ceil(t_cursor / dt_s)))
+    loads: List[float] = []
+    idx = 0
+    for step in range(steps):
+        t = step * dt_s + 0.5 * dt_s
+        while idx < len(timeline) and t >= timeline[idx][1]:
+            idx += 1
+        if idx >= len(timeline):
+            load_kw = timeline[-1][2]
+        else:
+            load_kw = timeline[idx][2]
+        loads.append(load_kw)
+    return loads
+
+
+def _apply_synthetic_peaks(load_series: Sequence[float]) -> List[float]:
+    n = len(load_series)
+    if n == 0:
+        return []
+    modulated: List[float] = []
+    for i, base in enumerate(load_series):
+        phase = 2.0 * math.pi * i / max(1, n - 1)
+        wave = 0.8 + 0.35 * math.sin(phase) + 0.2 * math.sin(3.0 * phase + 0.5)
+        pos = i / max(1, n - 1)
+        peak1 = 0.25 * math.exp(-((pos - 0.3) / 0.08) ** 2)
+        peak2 = 0.35 * math.exp(-((pos - 0.75) / 0.05) ** 2)
+        factor = max(0.4, wave + peak1 + peak2)
+        modulated.append(base * factor)
+    return modulated
+
+
+def _build_load_series(
+    profile: Dict[str, Any],
+    env_series: Sequence[Dict[str, float]],
+    energy_cfg: Dict[str, Any],
+    target_speed_kn: float,
+) -> tuple[List[float], float]:
+    dt_s = float(energy_cfg.get("dt_s", 60.0))
+    if dt_s <= 0:
+        raise ValueError("energy.dt_s must be positive")
+    totals = profile.get("totals", {})
+    total_time = float(totals.get("time_s", 0.0))
+    if total_time <= 0:
+        total_time = dt_s * max(1, len(env_series) or 1)
+    steps = max(1, int(math.ceil(total_time / dt_s)))
+
+    const_prop_kw = energy_cfg.get("propulsion_kw")
+    fallback_kw = float(energy_cfg.get("propulsion_kw_fallback", 800.0))
+    hotel_kw = float(energy_cfg.get("hotel_load_kw", 0.0))
+    load_series: List[float] = []
+    env_len = len(env_series)
+    speed_m_s = target_speed_kn * 0.514444
+
+    for idx in range(steps):
+        env = env_series[min(idx, env_len - 1)] if env_len else {}
+        if const_prop_kw is None:
+            prop_kw = max(0.0, propulsion_power(env, speed_m_s) / 1000.0)
+            if not math.isfinite(prop_kw) or prop_kw <= 0:
+                prop_kw = fallback_kw
+        else:
+            prop_kw = float(const_prop_kw)
+        load_series.append(prop_kw + hotel_kw)
+
+    profile_mode = (energy_cfg.get("load_profile") or "constant").lower()
+    if profile_mode == "from_speed":
+        seg_series = _load_from_profile_segments(profile, dt_s)
+        if seg_series:
+            return seg_series, dt_s
+    if profile_mode == "synthetic_peaks":
+        return _apply_synthetic_peaks(load_series), dt_s
+    return load_series, dt_s
+
+
+def _diesel_only_result(
+    generator: DieselGenerator,
+    load_series: Sequence[float],
+    dt_s: float,
+    policy: str,
+) -> Dict[str, Any]:
+    p_gen_series: List[float] = []
+    p_batt_series: List[float] = []
+    fuel_total = 0.0
+    for load_kw in load_series:
+        p_gen = generator.clamp_power(load_kw)
+        p_gen_series.append(p_gen)
+        p_batt_series.append(load_kw - p_gen)
+        fuel_total += generator.fuel_kg_per_s(p_gen) * dt_s
+    return {
+        "mode": "diesel_only",
+        "policy": policy,
+        "dt_s": dt_s,
+        "fuel_kg_total": fuel_total,
+        "soc_series": [],
+        "p_gen_series": p_gen_series,
+        "p_batt_series": p_batt_series,
+        "load_series": list(load_series),
+        "soc_min": None,
+    }
+
+
+def _run_energy_simulation(
+    load_series: Sequence[float],
+    dt_s: float,
+    energy_cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not load_series:
+        return {}
+    policy = energy_cfg.get("policy", "naive")
+    generator_cfg = energy_cfg.get("generator", {})
+    generator = DieselGenerator(
+        p_max_kw=float(generator_cfg.get("p_max_kw", 2000.0)),
+        p_min_kw=float(generator_cfg.get("p_min_kw", 200.0)),
+        sfoc_curve=generator_cfg.get("sfoc_curve"),
+    )
+
+    mode = (energy_cfg.get("mode") or "diesel_only").lower()
+    if mode == "hybrid":
+        battery_cfg = energy_cfg.get("battery")
+        if not battery_cfg:
+            raise ValueError("energy.battery section required for hybrid mode")
+        battery = BatteryModel(**battery_cfg)
+        system = HybridPowerSystem(generator=generator, battery=battery)
+        sim = system.simulate(load_series, dt_s=dt_s, policy=policy)
+        soc_series = sim.get("soc_series", [])
+        return {
+            "mode": mode,
+            "policy": policy,
+            "dt_s": dt_s,
+            "fuel_kg_total": sim.get("fuel_kg_total", 0.0),
+            "soc_series": soc_series,
+            "soc_min": min(soc_series) if soc_series else None,
+            "p_gen_series": sim.get("p_gen_series", []),
+            "p_batt_series": sim.get("p_batt_series", []),
+            "load_series": list(load_series),
+        }
+    return _diesel_only_result(generator, load_series, dt_s, policy)
 
 
 class _VESAdapter:
@@ -220,10 +396,19 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
 
     raw_path_ll = [rc_to_latlon(r, c, bounds, grid.shape) for r, c in path_rc]
 
-    env_cfg = config.get("environment", {})
-    env_series, env_samples = _env_series_and_samples(env_cfg, path_rc, len(path_ll), base_dir)
-
     energy_cfg = config.get("energy", {})
+    target_speed_kn = float(energy_cfg.get("target_speed_kn", 12.0))
+
+    env_cfg = config.get("environment", {})
+    env_series, env_samples = _env_series_and_samples(
+        env_cfg,
+        path_rc,
+        raw_path_ll,
+        len(path_ll),
+        base_dir,
+        target_speed_kn,
+    )
+    # energy_cfg already defined above
     engine_yaml = energy_cfg.get("engine_yaml")
     engines: List[Engine] = []
     fallback_reason: str | None = None
@@ -251,17 +436,29 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("No engines available for energy simulation")
 
     battery_cfg = energy_cfg.get("battery", {})
-    soc_val = battery_cfg.get("soc_kwh")
-    battery = Battery(
-        capacity_kwh=float(battery_cfg.get("capacity_kwh", 2000.0)),
-        soc_kwh=None if soc_val is None else float(soc_val),
-        charge_eff=float(battery_cfg.get("charge_eff", 0.95)),
-        discharge_eff=float(battery_cfg.get("discharge_eff", 0.95)),
-    )
+    capacity_kwh = float(battery_cfg.get("capacity_kwh", 2000.0))
+    soc_kwh = battery_cfg.get("soc_kwh")
+    if soc_kwh is None and "soc_init" in battery_cfg:
+        soc_kwh = float(battery_cfg["soc_init"]) * capacity_kwh
+    charge_eff = float(battery_cfg.get("charge_eff", battery_cfg.get("eta_charge", 0.95)))
+    discharge_eff = float(battery_cfg.get("discharge_eff", battery_cfg.get("eta_discharge", 0.95)))
+    battery_kwargs: Dict[str, Any] = {
+        "capacity_kwh": capacity_kwh,
+        "soc_min": float(battery_cfg.get("soc_min", 0.0)),
+        "soc_max": float(battery_cfg.get("soc_max", 1.0)),
+        "p_charge_max_kw": battery_cfg.get("p_charge_max_kw"),
+        "p_discharge_max_kw": battery_cfg.get("p_discharge_max_kw"),
+        "eta_charge": charge_eff,
+        "eta_discharge": discharge_eff,
+    }
+    if soc_kwh is not None:
+        battery_kwargs["soc_kwh"] = float(soc_kwh)
+    elif "soc_init" in battery_cfg:
+        battery_kwargs["soc_init"] = float(battery_cfg["soc_init"])
+    battery = Battery(**battery_kwargs)
     ves = VesselEnergySystem(engines, battery)
 
     adapter = _VESAdapter(ves)
-    target_speed_kn = float(energy_cfg.get("target_speed_kn", 12.0))
     dt_s = float(energy_cfg.get("dt_s", 60.0))
 
     profile = feasible_speed_profile(
@@ -284,6 +481,17 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
         "target_speed_kn": target_speed_kn,
     }
 
+    energy_result: Dict[str, Any] | None = None
+    if energy_cfg.get("mode"):
+        try:
+            load_series, energy_dt = _build_load_series(profile, env_series, energy_cfg, target_speed_kn)
+            energy_result = _run_energy_simulation(load_series, energy_dt, energy_cfg)
+        except Exception as exc:
+            warnings.warn(f"energy simulation failed: {exc}", RuntimeWarning, stacklevel=2)
+            energy_result = None
+    if energy_result:
+        metrics["energy_fuel_kg"] = float(energy_result.get("fuel_kg_total", 0.0))
+
     result = {
         "grid": grid,
         "grid_bounds": bounds,
@@ -298,6 +506,8 @@ def run_scenario(config: Dict[str, Any]) -> Dict[str, Any]:
         "profile": profile,
         "metrics": metrics,
     }
+    if energy_result:
+        result["energy_result"] = energy_result
     return result
 
 
